@@ -3,27 +3,20 @@
 #include <vector>
 
 #include "Engine/app.h"
-#include "Labs/0-GettingStarted/CaseBox.h"
-#include "Labs/0-GettingStarted/CaseFixed.h"
-#include "Labs/0-GettingStarted/CaseFluid.h"
-#include "Labs/0-GettingStarted/CaseMassSpring.h"
-#include "Labs/0-GettingStarted/CaseResizable.h"
+#include "Labs/1-RigidBody/SingleCaseBox.h"
+
 #include "Labs/Common/UI.h"
 
-namespace VCX::Labs::GettingStarted {
+namespace VCX::Labs::RigidBody {
     class App : public Engine::IApp {
     private:
         Common::UI _ui;
 
-        CaseFixed      _caseFixed;
-        CaseResizable  _caseResizable;
-        CaseBox        _caseBox;
-        CaseMassSpring _caseMassSpring;
-        CaseFluid      _casefluid;
+        SingleCaseBox        _singleCaseBox;
 
         std::size_t _caseId = 0;
 
-        std::vector<std::reference_wrapper<Common::ICase>> _cases = { _caseFixed, _caseResizable, _caseBox, _caseMassSpring, _casefluid };
+        std::vector<std::reference_wrapper<Common::ICase>> _cases = { _singleCaseBox};
 
     public:
         App();

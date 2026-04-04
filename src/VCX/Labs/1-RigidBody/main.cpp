@@ -3,8 +3,8 @@
 
 int main() {
     using namespace VCX;
-    return Engine::RunApp<Labs::GettingStarted::App>(Engine::AppContextOptions {
-        .Title         = "VCX-sim Labs 0: Getting Started",
+    return Engine::RunApp<Labs::RigidBody::App>(Engine::AppContextOptions {
+        .Title         = "VCX-sim Labs 1: Rigid Body",
         .WindowSize    = {1024, 768},
         .FontSize      = 16,
         .IconFileNames = Assets::DefaultIcons,
