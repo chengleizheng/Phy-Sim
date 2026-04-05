@@ -3,6 +3,8 @@
 #include "Engine/app.h"
 #include <iostream>
 
+//set mutual conversion between two data types
+
 static glm::vec3 eigen2glm(const Eigen::Vector3f& eigenVec) {
     return glm::vec3(eigenVec.x(), eigenVec.y(), eigenVec.z());
 }
@@ -51,7 +53,7 @@ namespace VCX::Labs::RigidBody {
         if (ImGui::Button("Reset State")) {
             _box.center = Eigen::Vector3f(0.f, 0.f, 0.f);
             _box.velocity = Eigen::Vector3f(0.f, 0.f, 0.f);
-            _box.angularVelocity = Eigen::Vector3f(0.f, 1.0f, 0.f); // 恢复自转
+            _box.angularVelocity = Eigen::Vector3f(0.f, 1.0f, 0.f); // reset rotation
             _box.orientation = Eigen::Quaternionf(1.f, 0.f, 0.f, 0.f);
         }
     }
@@ -61,6 +63,7 @@ namespace VCX::Labs::RigidBody {
     Common::CaseRenderResult CaseSingleBody::OnRender(std::pair<std::uint32_t, std::uint32_t> const desiredSize) {
         // apply mouse control first
         std::pair<glm::vec3,glm::vec3> force =  _forceManager.getForce(eigen2glm(_box.center));
+        // the second type of getForce
         OnProcessMouseControl(force);
 
         Advance(Engine::GetDeltaTime());
@@ -78,21 +81,21 @@ namespace VCX::Labs::RigidBody {
         glLineWidth(.5f);
 
         std::vector<glm::vec3> VertsPosition;
-        _box.dim = glm2eigen(_dim); // 确保 UI 调节的尺寸能同步给物理 Box 用于计算惯性张量
+        _box.dim = glm2eigen(_dim); 
         
-        // 提取物理引擎更新后的中心点
+        // Get the updated center from physics engine
         glm::vec3 current_center = eigen2glm(_box.center);
         
-        // 将四元数转换为旋转矩阵
+        // Convert quaternion to rotation matrix
         Eigen::Matrix3f R = _box.orientation.toRotationMatrix();
 
-        // 将局部坐标轴的基向量乘上旋转矩阵，转换到世界坐标系
+        // Transform local coordinate basis vectors to world space using rotation matrix
         glm::vec3 new_x = eigen2glm(R * Eigen::Vector3f(_box.dim.x() / 2, 0.f, 0.f));
         glm::vec3 new_y = eigen2glm(R * Eigen::Vector3f(0.f, _box.dim.y() / 2, 0.f));
         glm::vec3 new_z = eigen2glm(R * Eigen::Vector3f(0.f, 0.f, _box.dim.z() / 2));
 
         VertsPosition.resize(8);
-        // 基于实时 center 和旋转后的基向量构建顶点
+        // Build vertices based on real-time center and rotated basis vectors
         VertsPosition[0] = current_center - new_x + new_y + new_z;
         VertsPosition[1] = current_center + new_x + new_y + new_z;
         VertsPosition[2] = current_center + new_x + new_y - new_z;
@@ -139,24 +142,24 @@ namespace VCX::Labs::RigidBody {
     }
 
     void CaseSingleBody::OnProcessMouseControl(std::pair<glm::vec3, glm::vec3> force) {
-    glm::vec3 forceDelta = force.first;
-    glm::vec3 forcePoint = force.second;
+        glm::vec3 forceDelta = force.first;
+        glm::vec3 forcePoint = force.second;
 
-    // 如果鼠标没有拖拽（没有产生力），直接返回，避免无意义的计算
-    if (glm::length(forceDelta) < 1e-6f) return;
+        // Skip if no force is applied
+        if (glm::length(forceDelta) < 1e-6f) return;
 
-    // 将力视为冲量 (Impulse)
-    Eigen::Vector3f impulse = glm2eigen(forceDelta);
-    Eigen::Vector3f r = glm2eigen(forcePoint) - _box.center; // 力臂
+        // Treat force as impulse
+        Eigen::Vector3f impulse = glm2eigen(forceDelta);
+        Eigen::Vector3f r = glm2eigen(forcePoint) - _box.center; // moment arm
     
-    // 角冲量 = 力臂 x 冲量
-    Eigen::Vector3f angularImpulse = r.cross(impulse);
+        // Calculate change in angular momentum: ΔL = r x J
+        Eigen::Vector3f angularImpulse = r.cross(impulse);
 
-    // 线速度更新：v = v + J / m
-    _box.velocity += impulse / _box.mass;
+        // Update velocity: v = v + J / m
+        _box.velocity += impulse / _box.mass;
     
-    // 角速度更新：ω = ω + I^-1 * (r x J)
-    _box.angularVelocity += (_box.GetInertiaMatrix().inverse()) * angularImpulse;
-}
+        // Update angular velocity: ω = ω + I^-1 * (r x J)
+        _box.angularVelocity += (_box.GetInertiaMatrix().inverse()) * angularImpulse;
+    }
 
 } // namespace VCX::Labs::RigidBody
