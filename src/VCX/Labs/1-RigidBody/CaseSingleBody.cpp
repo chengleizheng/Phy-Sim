@@ -1,9 +1,19 @@
-#include "Labs/1-RigidBody/SingleCaseBox.h"
+#include "Labs/1-RigidBody/CaseSingleBody.h"
 #include "Labs/Common/ImGuiHelper.h"
+#include "Engine/app.h"
+#include <iostream>
+
+static glm::vec3 eigen2glm(const Eigen::Vector3f& eigenVec) {
+    return glm::vec3(eigenVec.x(), eigenVec.y(), eigenVec.z());
+}
+
+static Eigen::Vector3f glm2eigen(const glm::vec3& glmVec) {
+    return Eigen::Vector3f(glmVec.x, glmVec.y, glmVec.z);
+}
 
 namespace VCX::Labs::RigidBody {
 
-    SingleCaseBox::SingleCaseBox():
+    CaseSingleBody::CaseSingleBody():
         _program(
             Engine::GL::UniqueProgram({ Engine::GL::SharedShader("assets/shaders/flat.vert"),
                                         Engine::GL::SharedShader("assets/shaders/flat.frag") })),
@@ -25,7 +35,7 @@ namespace VCX::Labs::RigidBody {
         _cameraManager.Save(_camera);
     }
 
-    void SingleCaseBox::OnSetupPropsUI() {
+    void CaseSingleBody::OnSetupPropsUI() {
         if (ImGui::CollapsingHeader("Appearance", ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::ColorEdit3("Box Color", glm::value_ptr(_boxColor));
             ImGui::SliderFloat("x", &_dim[0], 0.5, 4);
@@ -39,9 +49,12 @@ namespace VCX::Labs::RigidBody {
         ImGui::Spacing();
     }
 
-    Common::CaseRenderResult SingleCaseBox::OnRender(std::pair<std::uint32_t, std::uint32_t> const desiredSize) {
+    Common::CaseRenderResult CaseSingleBody::OnRender(std::pair<std::uint32_t, std::uint32_t> const desiredSize) {
         // apply mouse control first
-        OnProcessMouseControl(_cameraManager.getMouseMove());
+        std::pair<glm::vec3,glm::vec3> force =  _forceManager.getForce(eigen2glm(_box.center));
+        OnProcessMouseControl(force);
+
+        Advance(Engine::GetDeltaTime());
 
         // rendering
         _frame.Resize(desiredSize);
@@ -91,14 +104,28 @@ namespace VCX::Labs::RigidBody {
         };
     }
 
-    void SingleCaseBox::OnProcessInput(ImVec2 const & pos) {
-        _cameraManager.ProcessInput(_camera, pos);
-        
+    void CaseSingleBody::Advance(float timeDelta) {
+        _box.center += timeDelta * _box.velocity;   // update position
+
+        Eigen::Quaternionf _angularVelocityQuaternion(0, _box.angularVelocity.x() * timeDelta * 0.5f, _box.angularVelocity.y() * timeDelta * 0.5f, _box.angularVelocity.z() * timeDelta * 0.5f);
+
+        _box.orientation.coeffs() += (_angularVelocityQuaternion*_box.orientation).coeffs();
+        _box.orientation.normalize();
     }
 
-    void SingleCaseBox::OnProcessMouseControl(glm::vec3 mouseDelta) {
-        float movingScale = 0.1f;
-        _center += mouseDelta * movingScale;
+    void CaseSingleBody::OnProcessInput(ImVec2 const & pos) {
+        _cameraManager.ProcessInput(_camera, pos);
+        _forceManager.ProcessInput(_camera, pos);
+    }
+
+    void CaseSingleBody::OnProcessMouseControl(std::pair<glm::vec3, glm::vec3> force) {
+        glm::vec3 forceDelta = force.first;
+        glm::vec3 forcePoint = force.second;
+        float movingScale = 1.f;
+
+        Eigen::Vector3f torque = (glm2eigen(forcePoint) - _box.center).cross(glm2eigen(forceDelta));
+        _box.angularVelocity += (_box.GetInertiaMatrix().inverse())*torque;
+        _box.velocity += glm2eigen(forceDelta) * movingScale;
     }
 
 } // namespace VCX::Labs::RigidBody

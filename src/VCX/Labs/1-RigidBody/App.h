@@ -3,7 +3,7 @@
 #include <vector>
 
 #include "Engine/app.h"
-#include "Labs/1-RigidBody/SingleCaseBox.h"
+#include "Labs/1-RigidBody/CaseSingleBody.h"
 
 #include "Labs/Common/UI.h"
 
@@ -12,11 +12,11 @@ namespace VCX::Labs::RigidBody {
     private:
         Common::UI _ui;
 
-        SingleCaseBox        _singleCaseBox;
+        CaseSingleBody _caseSingleBody;
 
         std::size_t _caseId = 0;
 
-        std::vector<std::reference_wrapper<Common::ICase>> _cases = { _singleCaseBox};
+        std::vector<std::reference_wrapper<Common::ICase>> _cases = { _caseSingleBody};
 
     public:
         App();
