@@ -37,11 +37,12 @@ namespace VCX::Labs::RigidBody {
         Eigen::Vector3f                     dim { 1.f, 2.f, 3.f };
         Eigen::Quaternionf                  orientation {1.0f, 0.0f, 0.0f, 0.0f}; // Quaternion for orientation
         // Eigen::Quaternionf                 _orientation {0.9f, 0.3f, 0.3f, 0.1f}; // Quaternion for orientation
-        Eigen::Vector3f                     angularVelocity {0.0f, 0.0f, 0.0f}; // Angular velocity
+        Eigen::Vector3f                     angularVelocity {0.0f, 1.0f, 0.0f}; // Angular velocity
         // Eigen::Vector3f                    _angularVelocity {1.0f, 0.0f, 0.0f}; // Angular velocity
         // Eigen::Vector3f                    _velocity { 0.1f, 0.1f, 0.1f };
         Eigen::Vector3f                     velocity { 0.f, 0.f, 0.f };
         Eigen::Vector3f                     center { 0.f, 0.f, 0.f };
+        // 在 Box.h 的结构体中，给一个不为 0 的初始角速度
         float                               mass{1.f};
     };
 } // namespace VCX::Labs::RigidBody
