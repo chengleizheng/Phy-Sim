@@ -20,6 +20,6 @@ namespace VCX::Labs::Common {
         private:
             glm::vec3 _deltaForce = glm::vec3 { 0.f };
             Engine::Camera _camera;
-            glm::vec3 _mouseDirection = glm::vec3 { 0.f };
+            glm::vec3 _rayDirection = glm::vec3 { 0.f };
         };
 }// namespace VCX::Labs::Common
