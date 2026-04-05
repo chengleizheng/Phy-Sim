@@ -57,15 +57,17 @@ namespace VCX::Labs::RigidBody {
         }
         
         if (ImGui::Button("Reset Scenario: Corner Hit")) {
-            _box0.center = Eigen::Vector3f(-3.f, 0.5f, 0.5f); // 偏移一点以产生旋转
+
+
+            _box0.center = Eigen::Vector3f(-3.f, 0.3f, 0.3f); // 偏移一点以产生旋转
             _box0.velocity = Eigen::Vector3f(2.f, 0.f, 0.f);
             _box0.angularVelocity = Eigen::Vector3f(0.f, 0.f, 0.f);
-            _box0.orientation = Eigen::Quaternionf(1.f, 0.f, 0.f, 0.f);
+            _box0.orientation = Eigen::Quaternionf(Eigen::AngleAxisf(3.1415926f / 4.0f, Eigen::Vector3f::UnitY()));
 
             _box1.center = Eigen::Vector3f(3.f, 0.f, 0.f);
             _box1.velocity = Eigen::Vector3f(-2.f, 0.f, 0.f);
             _box1.angularVelocity = Eigen::Vector3f(0.f, 0.f, 0.f);
-            _box1.orientation = Eigen::Quaternionf(1.f, 0.f, 0.f, 0.f);
+            _box1.orientation = Eigen::Quaternionf(Eigen::AngleAxisf(3.1415926f / 4.0f, Eigen::Vector3f::UnitZ()));
         }
     }
 
@@ -92,91 +94,101 @@ namespace VCX::Labs::RigidBody {
     }
 
     void CaseTwoBodies::ProcessCollision() {
-        // 使用 FCL 进行碰撞检测 (基于课件 P29)
-        using CollisionGeometryPtr_t = std::shared_ptr<fcl::CollisionGeometry<float>>;
-        
-        CollisionGeometryPtr_t shape0(new fcl::Box<float>(_box0.dim.x(), _box0.dim.y(), _box0.dim.z()));
-        CollisionGeometryPtr_t shape1(new fcl::Box<float>(_box1.dim.x(), _box1.dim.y(), _box1.dim.z()));
+    using CollisionGeometryPtr_t = std::shared_ptr<fcl::CollisionGeometry<float>>;
+    
+    CollisionGeometryPtr_t shape0(new fcl::Box<float>(_box0.dim.x(), _box0.dim.y(), _box0.dim.z()));
+    CollisionGeometryPtr_t shape1(new fcl::Box<float>(_box1.dim.x(), _box1.dim.y(), _box1.dim.z()));
 
-        fcl::Transform3f tf0(fcl::Translation3f(_box0.center) * _box0.orientation);
-        fcl::Transform3f tf1(fcl::Translation3f(_box1.center) * _box1.orientation);
+    fcl::Transform3f tf0(fcl::Translation3f(_box0.center) * _box0.orientation);
+    fcl::Transform3f tf1(fcl::Translation3f(_box1.center) * _box1.orientation);
 
-        fcl::CollisionObject<float> obj0(shape0, tf0);
-        fcl::CollisionObject<float> obj1(shape1, tf1);
+    fcl::CollisionObject<float> obj0(shape0, tf0);
+    fcl::CollisionObject<float> obj1(shape1, tf1);
 
-        fcl::CollisionRequest<float> request(8, true); // 最多求 8 个接触点
-        fcl::CollisionResult<float> result;
+    fcl::CollisionRequest<float> request(8, true); 
+    fcl::CollisionResult<float> result;
 
-        fcl::collide(&obj0, &obj1, request, result);
+    fcl::collide(&obj0, &obj1, request, result);
 
-        if (result.isCollision()) {
+    if (result.isCollision()) {
         std::vector<fcl::Contact<float>> contacts;
         result.getContacts(contacts);
-
         
-        const fcl::Contact<float>* deepest = &contacts[0];
+        if (contacts.empty()) return;
+
+        // [修复 2] 多触点平均化 (Contact Manifold Averaging)
+        // 将面面碰撞产生的多个点融合成一个等效的中心受力点
+        Eigen::Vector3f avg_pos = Eigen::Vector3f::Zero();
+        Eigen::Vector3f avg_normal = Eigen::Vector3f::Zero();
+        float max_depth = 0.0f;
+
         for (const auto& contact : contacts) {
-            if (contact.penetration_depth > deepest->penetration_depth) {
-                deepest = &contact;
+            avg_pos += contact.pos;
+            
+            // 统一法线方向：强制让法线 n 始终从 Box 1 指向 Box 0
+            Eigen::Vector3f n = contact.normal;
+            if (n.dot(_box0.center - _box1.center) < 0) {
+                n = -n;
             }
-        }
-        ApplyImpulse(_box0, _box1, *deepest);
-    }
-    }
-
-    void CaseTwoBodies::ApplyImpulse(Box& boxA, Box& boxB, const fcl::Contact<float>& contact) {
-        Eigen::Vector3f p = contact.pos;
-        // 注意：FCL 的法线通常是从 obj1 指向 obj0，我们需要确保 n 指向 B。
-        // 为了安全起见，我们通过 center 关系确认法线方向。
-        
-        Eigen::Vector3f n = contact.normal; 
-        if (n.dot(boxB.center - boxA.center) < 0) {
-            n = -n;
+            avg_normal += n;
+            max_depth = std::max(max_depth, contact.penetration_depth);
         }
 
-        // 计算碰撞点相对于质心的位置
-        Eigen::Vector3f rA = p - boxA.center;
-        Eigen::Vector3f rB = p - boxB.center;
+        avg_pos /= contacts.size();
+        avg_normal.normalize();
 
-        // 计算接触点的绝对速度 (v + w x r)
-        Eigen::Vector3f vA_p = boxA.velocity + boxA.angularVelocity.cross(rA);
-        Eigen::Vector3f vB_p = boxB.velocity + boxB.angularVelocity.cross(rB);
-
-        // 计算相对速度 (v_rel = vA - vB)
-        Eigen::Vector3f v_rel = vA_p - vB_p;
-
-        // 碰撞判断：如果物体正在分离，则不产生冲量 (课件 P30)
-        float relVelAlongNormal = v_rel.dot(n);
-         
-
-        // 课件 P33：计算冲量大小 j
-        Eigen::Matrix3f invIa = boxA.GetInertiaMatrix().inverse();
-        Eigen::Matrix3f invIb = boxB.GetInertiaMatrix().inverse();
-
-        float termA = n.dot( (invIa * (rA.cross(n))).cross(rA) );
-        float termB = n.dot( (invIb * (rB.cross(n))).cross(rB) );
-        
-        float denominator = (1.0f / boxA.mass) + (1.0f / boxB.mass) + termA + termB;
-        float j = -(1.0f + _restitution) * relVelAlongNormal / denominator;
-
-        // 向量形式的冲量
-        Eigen::Vector3f J = j * n;
-
-        // 应用冲量到线速度和角速度 (课件 P27 / P33)
-        boxA.velocity += J / boxA.mass;
-        boxA.angularVelocity += invIa * rA.cross(J);
-
-        boxB.velocity -= J / boxB.mass;
-        boxB.angularVelocity -= invIb * rB.cross(J);
-
-        // 位置修正 (Position Correction) 避免物体因数值误差卡死在一起
-        const float percent = 0.4f; // 修正系数
-        const float slop = 0.01f;   // 容差
-        Eigen::Vector3f correction = (std::max(contact.penetration_depth - slop, 0.0f) / ((1.0f / boxA.mass) + (1.0f / boxB.mass))) * percent * n;
-        
-        boxA.center += correction * (1.0f / boxA.mass);
-        boxB.center -= correction * (1.0f / boxB.mass);
+        // 对这个等效的中心点施加一次冲量
+        ApplyImpulse(_box0, _box1, avg_pos, avg_normal, max_depth);
     }
+}
+
+void CaseTwoBodies::ApplyImpulse(Box& boxA, Box& boxB, const Eigen::Vector3f& p, const Eigen::Vector3f& n, float depth) {
+    Eigen::Vector3f rA = p - boxA.center;
+    Eigen::Vector3f rB = p - boxB.center;
+
+    Eigen::Vector3f vA_p = boxA.velocity + boxA.angularVelocity.cross(rA);
+    Eigen::Vector3f vB_p = boxB.velocity + boxB.angularVelocity.cross(rB);
+
+    Eigen::Vector3f v_rel = vA_p - vB_p;
+
+    // [修复 1] 相对速度判定修正 [cite: 1]
+    // 法线 n 现在指向 A。如果 A, B 正在互相靠近，v_rel 必然和 n 呈钝角。
+    // 所以 v_rel.dot(n) < 0 才代表它们正在“撞击”。大于 0 则说明已经弹开。
+    float relVelAlongNormal = v_rel.dot(n);
+    if (relVelAlongNormal > 0) {
+        return; 
+    }
+
+    Eigen::Matrix3f invIa = boxA.GetInertiaMatrix().inverse();
+    Eigen::Matrix3f invIb = boxB.GetInertiaMatrix().inverse();
+
+    // 课件 P33 的刚体冲量分母计算 [cite: 2]
+    float termA = n.dot( (invIa * (rA.cross(n))).cross(rA) );
+    float termB = n.dot( (invIb * (rB.cross(n))).cross(rB) );
+    
+    float denominator = (1.0f / boxA.mass) + (1.0f / boxB.mass) + termA + termB;
+    
+    // 计算冲量标量 j (一定是正数) [cite: 2]
+    float j = -(1.0f + _restitution) * relVelAlongNormal / denominator;
+
+    Eigen::Vector3f J = j * n;
+
+    // 更新线速度与角速度 [cite: 2]
+    boxA.velocity += J / boxA.mass;
+    boxA.angularVelocity += invIa * rA.cross(J);
+
+    boxB.velocity -= J / boxB.mass;
+    boxB.angularVelocity -= invIb * rB.cross(J);
+
+    // [强化] 位置修正 (Position Correction)
+    // 把 percent 调高到 0.8，让穿透后能更快被强制推开
+    const float percent = 0.8f; 
+    const float slop = 0.01f;
+    Eigen::Vector3f correction = (std::max(depth - slop, 0.0f) / ((1.0f / boxA.mass) + (1.0f / boxB.mass))) * percent * n;
+    
+    boxA.center += correction * (1.0f / boxA.mass);
+    boxB.center -= correction * (1.0f / boxB.mass);
+}
 
     void CaseTwoBodies::GetBoxVertices(const Box& box, std::vector<glm::vec3>& outVertices) {
         glm::vec3 center = eigen2glm(box.center);

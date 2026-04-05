@@ -28,7 +28,7 @@ namespace VCX::Labs::RigidBody {
     
     private:
         void ProcessCollision();
-        void ApplyImpulse(Box& boxA, Box& boxB, const fcl::Contact<float>& contact);
+        void ApplyImpulse(Box& boxA, Box& boxB, const Eigen::Vector3f& p, const Eigen::Vector3f& n, float depth);
 
         void GetBoxVertices(const Box& box, std::vector<glm::vec3>& vertices);
         
