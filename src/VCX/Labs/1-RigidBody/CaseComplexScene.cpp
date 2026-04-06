@@ -33,7 +33,7 @@ void CaseComplexScene::ResetScene() {
     
     float floorSize = 15.0f;
     float wallHeight = 15.0f;
-    float thickness = 0.5f;
+    float thickness = 1.5f;
 
     // 1. 地板：位于地面以下
     Box floor(Eigen::Vector3f(floorSize, thickness, floorSize), 
@@ -67,6 +67,8 @@ void CaseComplexScene::ResetScene() {
     // 重新放置动态方块，让它们从更高的地方落下
     for (int i = 0; i < 6; ++i) {
         Box b;
+        // ResetScene 里初始化动态盒子时加上：
+        b.restingFrames = 0;
         b.mass = 1.0f;
         b.dim = Eigen::Vector3f(1.2f, 1.2f, 1.2f);
         b.center = Eigen::Vector3f(0.f, 5.0f + i * 2.5f, 0.f); // 垂直堆叠下落
@@ -78,7 +80,7 @@ void CaseComplexScene::ResetScene() {
 
     void CaseComplexScene::OnSetupPropsUI() {
         ImGui::Checkbox("Pause Simulation", &_pause);
-        ImGui::SliderFloat("Gravity", &_gravity.y, -20.0f, 0.0f);
+        ImGui::SliderFloat("Gravity", &_gravity.y, -40.0f, 0.0f);
         ImGui::SliderFloat("Restitution", &_restitution, 0.0f, 1.0f);
         if (ImGui::Button("Reset Scene")) {
             ResetScene();
@@ -88,10 +90,13 @@ void CaseComplexScene::ResetScene() {
     void CaseComplexScene::Advance(float timeDelta) {
         if (_pause) return;
 
-        ProcessCollisions();
-
         // 1. 积分与外力应用
         for (auto& box : _dynamicBoxes) {
+            if (box.restingFrames > 500  && &box != _activeBox) {
+                box.velocity = Eigen::Vector3f::Zero();
+                box.angularVelocity = Eigen::Vector3f::Zero();
+                continue; // 位置和旋转也不更新
+            }
             // 施加重力
             box.velocity += glm2eigen(_gravity) * timeDelta;
             
@@ -107,6 +112,7 @@ void CaseComplexScene::ResetScene() {
         }
 
         // 2. 碰撞检测与处理
+        ProcessCollisions();
     }
 
     void CaseComplexScene::ProcessCollisions() {
@@ -183,6 +189,22 @@ void CaseComplexScene::ResetScene() {
         }
     }
 
+    std::vector<bool> hasContact(_dynamicBoxes.size(), false);
+
+for (auto& m : manifolds) {
+    for (size_t i = 0; i < _dynamicBoxes.size(); ++i) {
+        if (m.a == &_dynamicBoxes[i]) hasContact[i] = true;
+    }
+}
+
+for (size_t i = 0; i < _dynamicBoxes.size(); ++i) {
+    if (hasContact[i]) {
+        _dynamicBoxes[i].restingFrames++;
+    } else {
+        _dynamicBoxes[i].restingFrames = 0; // 离开接触立刻重置
+    }
+}
+
     // 2. 速度求解阶段 (Velocity Solver)
     // 【关键修复 2】：多次迭代求解冲量，完美解决多个面同时碰撞（如墙角挤压）的系统冲突
     const int velocityIterations = 10;
@@ -195,11 +217,27 @@ void CaseComplexScene::ResetScene() {
     // 3. 位置修正阶段 (Position Solver)
     // 【关键修复 3】：速度求解完成后，统一进行一次位置补偿，避免注入错误的能量导致抖动
     for (auto& m : manifolds) {
+    bool aResting = (m.a->mass > 0.f && m.a->restingFrames > 5);
+    bool bResting = (m.b->mass > 0.f && m.b->restingFrames > 5);
+    
+    // 静息接触只做极小补偿防止沉入，不做完整修正
+    if (aResting || bResting) {
+        const float percent = 0.05f; // 静息时大幅降低
+        const float slop = 0.02f;    // 静息时允许更大容差
+        float invMassA = m.a->mass > 0.0f ? 1.0f / m.a->mass : 0.0f;
+        float invMassB = m.b->mass > 0.0f ? 1.0f / m.b->mass : 0.0f;
+        Eigen::Vector3f correction = (std::max(m.depth - slop, 0.0f) / (invMassA + invMassB)) * percent * m.normal;
+        if (invMassA > 0.f) m.a->center += correction * invMassA;
+        if (invMassB > 0.f) m.b->center -= correction * invMassB;
+    } else {
         ApplyPositionCorrection(*m.a, *m.b, m.normal, m.depth);
     }
 }
+}
 
-void CaseComplexScene::ApplyImpulse(Box& boxA, Box& boxB, const Eigen::Vector3f& p, const Eigen::Vector3f& n, float depth) {
+void CaseComplexScene::ApplyImpulse(Box& boxA, Box& boxB, 
+    const Eigen::Vector3f& p, const Eigen::Vector3f& n, float depth) {
+    
     Eigen::Vector3f rA = p - boxA.center;
     Eigen::Vector3f rB = p - boxB.center;
 
@@ -208,36 +246,31 @@ void CaseComplexScene::ApplyImpulse(Box& boxA, Box& boxB, const Eigen::Vector3f&
     Eigen::Vector3f v_rel = vA_p - vB_p;
 
     float relVelAlongNormal = v_rel.dot(n);
-    if (relVelAlongNormal > 0) return; // 正在分离
+    if (relVelAlongNormal > 0) return;
 
-    // 【关键修复 4】：静息接触 (Resting Contact) 处理
-    // 如果垂直于接触面的相对速度非常小（通常是重力造成的微小下落），将其视为静息接触，强制消除反弹
+    // ★ 修复：根据持续接触帧数动态调整恢复系数
+    // 接触超过 N 帧视为静息，直接归零弹性，彻底消除抖动
     float e = _restitution;
-    if (relVelAlongNormal > -0.8f) { // 阈值可以根据重力大小（如 -15.0f）微调
-        e = 0.0f;
-    }
+    bool isResting = (boxA.mass > 0.f && boxA.restingFrames > 5) || 
+                     (boxB.mass > 0.f && boxB.restingFrames > 5);
 
-    // 处理质量与逆惯性张量
+    // ... 后续冲量计算不变 ...
     float invMassA = boxA.mass > 0.0f ? 1.0f / boxA.mass : 0.0f;
     float invMassB = boxB.mass > 0.0f ? 1.0f / boxB.mass : 0.0f;
     
     Eigen::Matrix3f invIa = Eigen::Matrix3f::Zero();
     if (boxA.mass > 0.0f) invIa = boxA.GetInertiaMatrix().inverse();
-    
     Eigen::Matrix3f invIb = Eigen::Matrix3f::Zero();
     if (boxB.mass > 0.0f) invIb = boxB.GetInertiaMatrix().inverse();
 
-    float termA = n.dot( (invIa * (rA.cross(n))).cross(rA) );
-    float termB = n.dot( (invIb * (rB.cross(n))).cross(rB) );
-    
+    float termA = n.dot((invIa * (rA.cross(n))).cross(rA));
+    float termB = n.dot((invIb * (rB.cross(n))).cross(rB));
     float denominator = invMassA + invMassB + termA + termB;
-    if (denominator < 1e-6f) return; // 避免除零
+    if (denominator < 1e-6f) return;
 
-    // 计算冲量大小
     float j = -(1.0f + e) * relVelAlongNormal / denominator;
     Eigen::Vector3f J = j * n;
 
-    // 仅更新速度，不碰位置
     if (invMassA > 0.f) {
         boxA.velocity += J * invMassA;
         boxA.angularVelocity += invIa * rA.cross(J);
@@ -252,9 +285,9 @@ void CaseComplexScene::ApplyPositionCorrection(Box& boxA, Box& boxB, const Eigen
     float invMassA = boxA.mass > 0.0f ? 1.0f / boxA.mass : 0.0f;
     float invMassB = boxB.mass > 0.0f ? 1.0f / boxB.mass : 0.0f;
 
-    // 降低补偿比例，0.2f 能有效防止过冲 (Overshoot)
-    const float percent = 0.2f; 
-    const float slop = 0.015f;
+    // 降低补偿比例，0.3f 能有效防止过冲 (Overshoot)
+    const float percent = 0.3f; 
+    const float slop = 0.005f;
     
     Eigen::Vector3f correction = (std::max(depth - slop, 0.0f) / (invMassA + invMassB)) * percent * n;
     
@@ -285,9 +318,12 @@ void CaseComplexScene::ApplyPositionCorrection(Box& boxA, Box& boxB, const Eigen
         int hitIndex = forceData.second;
         
         if (glm::length(forceDelta) > 1e-6f && hitIndex >= 0 && hitIndex < _dynamicBoxes.size()) {
-            // 直接施加冲量到质心，或者你可以修改给力臂产生旋转
-            _dynamicBoxes[hitIndex].velocity += glm2eigen(forceDelta) / _dynamicBoxes[hitIndex].mass;
-        }
+    _dynamicBoxes[hitIndex].velocity += glm2eigen(forceDelta) / _dynamicBoxes[hitIndex].mass;
+    _dynamicBoxes[hitIndex].restingFrames = 0;
+    _activeBox = &_dynamicBoxes[hitIndex]; // 标记当前交互物体
+} else {
+    _activeBox = nullptr; // 没有交互时清空
+}
 
         Advance(Engine::GetDeltaTime());
 

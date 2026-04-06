@@ -25,6 +25,8 @@ namespace VCX::Labs::RigidBody {
         virtual void                     OnProcessInput(ImVec2 const & pos) override;
 
         void Advance(float timeDelta);
+        float                               _restitution { 0.4f }; // 堆叠场景建议降低恢复系数
+        Box* _activeBox = nullptr; 
 
     private:
         struct ContactManifold {
@@ -56,7 +58,6 @@ namespace VCX::Labs::RigidBody {
         
         // 物理参数
         glm::vec3                           _gravity { 0.f, -9.8f, 0.f };
-        float                               _restitution { 0.4f }; // 堆叠场景建议降低恢复系数
         float                               _linearDamping { 0.99f };
         float                               _angularDamping { 0.97f };
         bool                                _pause { false };

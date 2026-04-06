@@ -41,6 +41,8 @@ namespace VCX::Labs::RigidBody {
         Eigen::Vector3f                     angularVelocity {0.0f, 1.0f, 0.0f}; // Angular velocity
         Eigen::Vector3f                     velocity { 0.f, 0.f, 0.f };
         Eigen::Vector3f                     center { 0.f, 0.f, 0.f };
+
+        int restingFrames{0}; // 连续静止帧数计数器
         
         float                               mass{1.f};
     };
