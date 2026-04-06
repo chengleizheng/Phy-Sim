@@ -23,42 +23,62 @@ namespace VCX::Labs::RigidBody {
         ResetScene();
     }
 
-    void CaseComplexScene::ResetScene() {
-        _dynamicBoxes.clear();
-        _staticBoxes.clear();
+void CaseComplexScene::ResetScene() {
+    _dynamicBoxes.clear();
+    _staticBoxes.clear();
 
-        // 1. 构建静态环境 (mass = 0 表示静态)
-        // 地板
-        Box floor(Eigen::Vector3f(15.f, 0.5f, 15.f), Eigen::Vector3f(0.f, -0.25f, 0.f), Eigen::Quaternionf::Identity(), 0.f);
-        floor.boxColor = glm::vec3(0.5f, 0.5f, 0.5f);
-        _staticBoxes.push_back(floor);
+    // 定义水晶色 (淡青色)
+    glm::vec3 crystalColor(0.75f, 0.92f, 1.0f);
+    // 定义深一点的边界线颜色（可选，用于辅助视觉）
+    
+    float floorSize = 15.0f;
+    float wallHeight = 15.0f;
+    float thickness = 0.5f;
 
-        // 两堵墙
-        Box wall1(Eigen::Vector3f(0.5f, 5.f, 15.f), Eigen::Vector3f(-7.5f, 2.5f, 0.f), Eigen::Quaternionf::Identity(), 0.f);
-        wall1.boxColor = glm::vec3(0.6f, 0.6f, 0.6f);
-        _staticBoxes.push_back(wall1);
-        
-        Box wall2(Eigen::Vector3f(0.5f, 5.f, 15.f), Eigen::Vector3f(7.5f, 2.5f, 0.f), Eigen::Quaternionf::Identity(), 0.f);
-        wall2.boxColor = glm::vec3(0.6f, 0.6f, 0.6f);
-        _staticBoxes.push_back(wall2);
+    // 1. 地板：位于地面以下
+    Box floor(Eigen::Vector3f(floorSize, thickness, floorSize), 
+              Eigen::Vector3f(0.f, -thickness/2.0f, 0.f), 
+              Eigen::Quaternionf::Identity(), 0.f);
+    floor.boxColor = crystalColor;
+    _staticBoxes.push_back(floor);
 
-        // 2. 构建动态方块 (产生复杂碰撞)
-        for (int i = 0; i < 5; ++i) {
-            Box b;
-            b.mass = 1.0f;
-            b.dim = Eigen::Vector3f(1.f, 1.f, 1.f);
-            // 错开高度和一点点水平位置，使其产生连环撞击
-            b.center = Eigen::Vector3f(0.1f * i, 3.0f + i * 2.0f, 0.1f * i);
-            b.velocity = Eigen::Vector3f::Zero();
-            // 给定微小初始旋转，打破对称性
-            b.orientation = Eigen::Quaternionf(Eigen::AngleAxisf(0.2f * i, Eigen::Vector3f::UnitY()));
-            b.boxColor = glm::vec3(0.2f + 0.15f * i, 0.8f - 0.1f * i, 0.3f + 0.1f * i);
-            _dynamicBoxes.push_back(b);
-        }
+    // 2. 左侧墙体：高度增加，位置根据高度重新计算
+    // 中心点 Y = wallHeight / 2
+    Box wallLeft(Eigen::Vector3f(thickness, wallHeight, floorSize), 
+                 Eigen::Vector3f(-floorSize/2.0f, wallHeight/2.0f, 0.f), 
+                 Eigen::Quaternionf::Identity(), 0.f);
+    wallLeft.boxColor = crystalColor * 0.9f; // 稍微暗一点点，增加层次感
+    _staticBoxes.push_back(wallLeft);
+
+    // 3. 右侧墙体
+    Box wallRight(Eigen::Vector3f(thickness, wallHeight, floorSize), 
+                  Eigen::Vector3f(floorSize/2.0f, wallHeight/2.0f, 0.f), 
+                  Eigen::Quaternionf::Identity(), 0.f);
+    wallRight.boxColor = crystalColor * 0.9f;
+    _staticBoxes.push_back(wallRight);
+
+    // 4. 后方墙体（可选，为了美观可以加上）
+    Box wallBack(Eigen::Vector3f(floorSize, wallHeight, thickness), 
+                 Eigen::Vector3f(0.f, wallHeight/2.0f, -floorSize/2.0f), 
+                 Eigen::Quaternionf::Identity(), 0.f);
+    wallBack.boxColor = crystalColor * 0.85f;
+    _staticBoxes.push_back(wallBack);
+
+    // 重新放置动态方块，让它们从更高的地方落下
+    for (int i = 0; i < 6; ++i) {
+        Box b;
+        b.mass = 1.0f;
+        b.dim = Eigen::Vector3f(1.2f, 1.2f, 1.2f);
+        b.center = Eigen::Vector3f(0.f, 5.0f + i * 2.5f, 0.f); // 垂直堆叠下落
+        b.orientation = Eigen::Quaternionf(Eigen::AngleAxisf(0.4f * i, Eigen::Vector3f::UnitX()));
+        b.boxColor = glm::vec3(1.0f, 0.4f + 0.1f * i, 0.4f); // 暖色方块与冷色背景对比
+        _dynamicBoxes.push_back(b);
     }
+}
 
     void CaseComplexScene::OnSetupPropsUI() {
         ImGui::Checkbox("Pause Simulation", &_pause);
+        ImGui::SliderFloat("Gravity", &_gravity.y, -20.0f, 0.0f);
         ImGui::SliderFloat("Restitution", &_restitution, 0.0f, 1.0f);
         if (ImGui::Button("Reset Scene")) {
             ResetScene();
@@ -90,131 +110,157 @@ namespace VCX::Labs::RigidBody {
     }
 
     void CaseComplexScene::ProcessCollisions() {
-        using CollisionGeometryPtr_t = std::shared_ptr<fcl::CollisionGeometry<float>>;
-        fcl::CollisionRequest<float> request(8, true);
+    using CollisionGeometryPtr_t = std::shared_ptr<fcl::CollisionGeometry<float>>;
+    fcl::CollisionRequest<float> request(8, true);
 
-        // 准备动态盒子的 FCL 对象
-        std::vector<fcl::CollisionObject<float>> dynObjs;
-        for (const auto& box : _dynamicBoxes) {
-            CollisionGeometryPtr_t shape(new fcl::Box<float>(box.dim.x(), box.dim.y(), box.dim.z()));
-            fcl::Transform3f tf(fcl::Translation3f(box.center) * box.orientation);
-            dynObjs.emplace_back(shape, tf);
-        }
+    std::vector<fcl::CollisionObject<float>> dynObjs;
+    for (const auto& box : _dynamicBoxes) {
+        CollisionGeometryPtr_t shape(new fcl::Box<float>(box.dim.x(), box.dim.y(), box.dim.z()));
+        fcl::Transform3f tf(fcl::Translation3f(box.center) * box.orientation);
+        dynObjs.emplace_back(shape, tf);
+    }
 
-        // 准备静态盒子的 FCL 对象
-        std::vector<fcl::CollisionObject<float>> statObjs;
-        for (const auto& box : _staticBoxes) {
-            CollisionGeometryPtr_t shape(new fcl::Box<float>(box.dim.x(), box.dim.y(), box.dim.z()));
-            fcl::Transform3f tf(fcl::Translation3f(box.center) * box.orientation);
-            statObjs.emplace_back(shape, tf);
-        }
+    std::vector<fcl::CollisionObject<float>> statObjs;
+    for (const auto& box : _staticBoxes) {
+        CollisionGeometryPtr_t shape(new fcl::Box<float>(box.dim.x(), box.dim.y(), box.dim.z()));
+        fcl::Transform3f tf(fcl::Translation3f(box.center) * box.orientation);
+        statObjs.emplace_back(shape, tf);
+    }
 
-        // A. 动态 vs 静态
-        for (size_t i = 0; i < _dynamicBoxes.size(); ++i) {
-            for (size_t j = 0; j < _staticBoxes.size(); ++j) {
-                fcl::CollisionResult<float> result;
-                fcl::collide(&dynObjs[i], &statObjs[j], request, result);
-                if (result.isCollision()) {
-                    std::vector<fcl::Contact<float>> contacts;
-                    result.getContacts(contacts);
-                    
-                    Eigen::Vector3f avg_pos = Eigen::Vector3f::Zero();
-                    Eigen::Vector3f avg_normal = Eigen::Vector3f::Zero();
-                    float max_depth = 0.0f;
+    // 1. 碰撞检测阶段：收集所有有效碰撞点
+    std::vector<ContactManifold> manifolds;
 
-                    for (const auto& c : contacts) {
-                        avg_pos += c.pos;
-                        Eigen::Vector3f n = c.normal;
-                        // 确保法线从 Static(B) 指向 Dynamic(A)
-                        if (n.dot(_dynamicBoxes[i].center - _staticBoxes[j].center) < 0) n = -n;
-                        avg_normal += n;
-                        max_depth = std::max(max_depth, c.penetration_depth);
-                    }
-                    avg_pos /= contacts.size();
-                    avg_normal.normalize();
-                    ApplyImpulse(_dynamicBoxes[i], _staticBoxes[j], avg_pos, avg_normal, max_depth);
+    // A. 动态 vs 静态
+    for (size_t i = 0; i < _dynamicBoxes.size(); ++i) {
+        for (size_t j = 0; j < _staticBoxes.size(); ++j) {
+            fcl::CollisionResult<float> result;
+            fcl::collide(&dynObjs[i], &statObjs[j], request, result);
+            if (result.isCollision()) {
+                std::vector<fcl::Contact<float>> contacts;
+                result.getContacts(contacts);
+                
+                Eigen::Vector3f avg_pos = Eigen::Vector3f::Zero();
+                Eigen::Vector3f avg_normal = Eigen::Vector3f::Zero();
+                float max_depth = 0.0f;
+
+                for (const auto& c : contacts) {
+                    avg_pos += c.pos;
+                    // 【关键修复 1】：放弃质心启发式，直接信任 FCL 的拓扑输出。
+                    // FCL 保证法线从 o1(动态) 指向 o2(静态)。我们需要从静态 B 推开动态 A，所以必须取负！
+                    avg_normal -= c.normal; 
+                    max_depth = std::max(max_depth, c.penetration_depth);
                 }
-            }
-        }
-
-        // B. 动态 vs 动态
-        for (size_t i = 0; i < _dynamicBoxes.size(); ++i) {
-            for (size_t j = i + 1; j < _dynamicBoxes.size(); ++j) {
-                fcl::CollisionResult<float> result;
-                fcl::collide(&dynObjs[i], &dynObjs[j], request, result);
-                if (result.isCollision()) {
-                    std::vector<fcl::Contact<float>> contacts;
-                    result.getContacts(contacts);
-                    
-                    Eigen::Vector3f avg_pos = Eigen::Vector3f::Zero();
-                    Eigen::Vector3f avg_normal = Eigen::Vector3f::Zero();
-                    float max_depth = 0.0f;
-
-                    for (const auto& c : contacts) {
-                        avg_pos += c.pos;
-                        Eigen::Vector3f n = c.normal;
-                        if (n.dot(_dynamicBoxes[i].center - _dynamicBoxes[j].center) < 0) n = -n;
-                        avg_normal += n;
-                        max_depth = std::max(max_depth, c.penetration_depth);
-                    }
-                    avg_pos /= contacts.size();
-                    avg_normal.normalize();
-                    ApplyImpulse(_dynamicBoxes[i], _dynamicBoxes[j], avg_pos, avg_normal, max_depth);
-                }
+                avg_pos /= contacts.size();
+                avg_normal.normalize();
+                manifolds.push_back({&_dynamicBoxes[i], &_staticBoxes[j], avg_pos, avg_normal, max_depth});
             }
         }
     }
 
-    void CaseComplexScene::ApplyImpulse(Box& boxA, Box& boxB, const Eigen::Vector3f& p, const Eigen::Vector3f& n, float depth) {
-        Eigen::Vector3f rA = p - boxA.center;
-        Eigen::Vector3f rB = p - boxB.center;
+    // B. 动态 vs 动态
+    for (size_t i = 0; i < _dynamicBoxes.size(); ++i) {
+        for (size_t j = i + 1; j < _dynamicBoxes.size(); ++j) {
+            fcl::CollisionResult<float> result;
+            fcl::collide(&dynObjs[i], &dynObjs[j], request, result);
+            if (result.isCollision()) {
+                std::vector<fcl::Contact<float>> contacts;
+                result.getContacts(contacts);
+                
+                Eigen::Vector3f avg_pos = Eigen::Vector3f::Zero();
+                Eigen::Vector3f avg_normal = Eigen::Vector3f::Zero();
+                float max_depth = 0.0f;
 
-        Eigen::Vector3f vA_p = boxA.velocity + boxA.angularVelocity.cross(rA);
-        Eigen::Vector3f vB_p = boxB.velocity + boxB.angularVelocity.cross(rB);
-        Eigen::Vector3f v_rel = vA_p - vB_p;
-
-        float relVelAlongNormal = v_rel.dot(n);
-        if (relVelAlongNormal > 0) return;
-
-        // 处理质量与惯性张量 (兼容静态刚体)
-        float invMassA = boxA.mass > 0.0f ? 1.0f / boxA.mass : 0.0f;
-        float invMassB = boxB.mass > 0.0f ? 1.0f / boxB.mass : 0.0f;
-        Eigen::Matrix3f invIa = Eigen::Matrix3f::Zero();
-if (boxA.mass > 0.0f) {
-    invIa = boxA.GetInertiaMatrix().inverse();
-}
-
-Eigen::Matrix3f invIb = Eigen::Matrix3f::Zero();
-if (boxB.mass > 0.0f) {
-    invIb = boxB.GetInertiaMatrix().inverse();
-}
-        float termA = n.dot( (invIa * (rA.cross(n))).cross(rA) );
-        float termB = n.dot( (invIb * (rB.cross(n))).cross(rB) );
-        
-        float denominator = invMassA + invMassB + termA + termB;
-        if (denominator < 1e-6f) return; // 避免除零
-
-        float j = -(1.0f + _restitution) * relVelAlongNormal / denominator;
-        Eigen::Vector3f J = j * n;
-
-        // 仅对动态刚体施加冲量
-        if (invMassA > 0.f) {
-            boxA.velocity += J * invMassA;
-            boxA.angularVelocity += invIa * rA.cross(J);
+                for (const auto& c : contacts) {
+                    avg_pos += c.pos;
+                    // 同理，o1 是 i(A)，o2 是 j(B)，我们需要从 B 推开 A，取负。
+                    avg_normal -= c.normal;
+                    max_depth = std::max(max_depth, c.penetration_depth);
+                }
+                avg_pos /= contacts.size();
+                avg_normal.normalize();
+                manifolds.push_back({&_dynamicBoxes[i], &_dynamicBoxes[j], avg_pos, avg_normal, max_depth});
+            }
         }
-        if (invMassB > 0.f) {
-            boxB.velocity -= J * invMassB;
-            boxB.angularVelocity -= invIb * rB.cross(J);
-        }
-
-        // 位置补偿 (防止沉入地面)
-        const float percent = 0.5f; 
-        const float slop = 0.01f;
-        Eigen::Vector3f correction = (std::max(depth - slop, 0.0f) / (invMassA + invMassB)) * percent * n;
-        
-        if (invMassA > 0.f) boxA.center += correction * invMassA;
-        if (invMassB > 0.f) boxB.center -= correction * invMassB;
     }
+
+    // 2. 速度求解阶段 (Velocity Solver)
+    // 【关键修复 2】：多次迭代求解冲量，完美解决多个面同时碰撞（如墙角挤压）的系统冲突
+    const int velocityIterations = 10;
+    for (int iter = 0; iter < velocityIterations; ++iter) {
+        for (auto& m : manifolds) {
+            ApplyImpulse(*m.a, *m.b, m.pos, m.normal, m.depth);
+        }
+    }
+
+    // 3. 位置修正阶段 (Position Solver)
+    // 【关键修复 3】：速度求解完成后，统一进行一次位置补偿，避免注入错误的能量导致抖动
+    for (auto& m : manifolds) {
+        ApplyPositionCorrection(*m.a, *m.b, m.normal, m.depth);
+    }
+}
+
+void CaseComplexScene::ApplyImpulse(Box& boxA, Box& boxB, const Eigen::Vector3f& p, const Eigen::Vector3f& n, float depth) {
+    Eigen::Vector3f rA = p - boxA.center;
+    Eigen::Vector3f rB = p - boxB.center;
+
+    Eigen::Vector3f vA_p = boxA.velocity + boxA.angularVelocity.cross(rA);
+    Eigen::Vector3f vB_p = boxB.velocity + boxB.angularVelocity.cross(rB);
+    Eigen::Vector3f v_rel = vA_p - vB_p;
+
+    float relVelAlongNormal = v_rel.dot(n);
+    if (relVelAlongNormal > 0) return; // 正在分离
+
+    // 【关键修复 4】：静息接触 (Resting Contact) 处理
+    // 如果垂直于接触面的相对速度非常小（通常是重力造成的微小下落），将其视为静息接触，强制消除反弹
+    float e = _restitution;
+    if (relVelAlongNormal > -0.8f) { // 阈值可以根据重力大小（如 -15.0f）微调
+        e = 0.0f;
+    }
+
+    // 处理质量与逆惯性张量
+    float invMassA = boxA.mass > 0.0f ? 1.0f / boxA.mass : 0.0f;
+    float invMassB = boxB.mass > 0.0f ? 1.0f / boxB.mass : 0.0f;
+    
+    Eigen::Matrix3f invIa = Eigen::Matrix3f::Zero();
+    if (boxA.mass > 0.0f) invIa = boxA.GetInertiaMatrix().inverse();
+    
+    Eigen::Matrix3f invIb = Eigen::Matrix3f::Zero();
+    if (boxB.mass > 0.0f) invIb = boxB.GetInertiaMatrix().inverse();
+
+    float termA = n.dot( (invIa * (rA.cross(n))).cross(rA) );
+    float termB = n.dot( (invIb * (rB.cross(n))).cross(rB) );
+    
+    float denominator = invMassA + invMassB + termA + termB;
+    if (denominator < 1e-6f) return; // 避免除零
+
+    // 计算冲量大小
+    float j = -(1.0f + e) * relVelAlongNormal / denominator;
+    Eigen::Vector3f J = j * n;
+
+    // 仅更新速度，不碰位置
+    if (invMassA > 0.f) {
+        boxA.velocity += J * invMassA;
+        boxA.angularVelocity += invIa * rA.cross(J);
+    }
+    if (invMassB > 0.f) {
+        boxB.velocity -= J * invMassB;
+        boxB.angularVelocity -= invIb * rB.cross(J);
+    }
+}
+
+void CaseComplexScene::ApplyPositionCorrection(Box& boxA, Box& boxB, const Eigen::Vector3f& n, float depth) {
+    float invMassA = boxA.mass > 0.0f ? 1.0f / boxA.mass : 0.0f;
+    float invMassB = boxB.mass > 0.0f ? 1.0f / boxB.mass : 0.0f;
+
+    // 降低补偿比例，0.2f 能有效防止过冲 (Overshoot)
+    const float percent = 0.2f; 
+    const float slop = 0.015f;
+    
+    Eigen::Vector3f correction = (std::max(depth - slop, 0.0f) / (invMassA + invMassB)) * percent * n;
+    
+    if (invMassA > 0.f) boxA.center += correction * invMassA;
+    if (invMassB > 0.f) boxB.center -= correction * invMassB;
+}
 
     void CaseComplexScene::GetBoxVertices(const Box& box, std::vector<glm::vec3>& outVertices) {
         glm::vec3 center = eigen2glm(box.center);
