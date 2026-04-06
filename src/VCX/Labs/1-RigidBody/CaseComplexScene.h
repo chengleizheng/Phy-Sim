@@ -49,8 +49,8 @@ namespace VCX::Labs::RigidBody {
         // 物理参数
         glm::vec3                           _gravity { 0.f, -9.8f, 0.f };
         float                               _restitution { 0.4f }; // 堆叠场景建议降低恢复系数
-        float                               _linearDamping { 0.99f };
-        float                               _angularDamping { 0.98f };
+        float                               _linearDamping { 0.997f };
+        float                               _angularDamping { 0.996f };
         bool                                _pause { false };
     };
 } // namespace VCX::Labs::RigidBody

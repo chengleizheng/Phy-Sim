@@ -68,6 +68,8 @@ namespace VCX::Labs::RigidBody {
     void CaseComplexScene::Advance(float timeDelta) {
         if (_pause) return;
 
+        ProcessCollisions();
+
         // 1. 积分与外力应用
         for (auto& box : _dynamicBoxes) {
             // 施加重力
@@ -85,7 +87,6 @@ namespace VCX::Labs::RigidBody {
         }
 
         // 2. 碰撞检测与处理
-        ProcessCollisions();
     }
 
     void CaseComplexScene::ProcessCollisions() {
