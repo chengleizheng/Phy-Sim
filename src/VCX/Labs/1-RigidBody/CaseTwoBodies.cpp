@@ -46,6 +46,12 @@ namespace VCX::Labs::RigidBody {
         if (ImGui::CollapsingHeader("Appearance", ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::ColorEdit3("Box0 Color", glm::value_ptr(_boxColor));
             ImGui::ColorEdit3("Box1 Color", glm::value_ptr(_boxColor));
+            ImGui::SliderFloat("Box0 x", &_box0.dim.x(), 0.5, 4);
+            ImGui::SliderFloat("Box0 y", &_box0.dim.y(), 0.5, 4);
+            ImGui::SliderFloat("Box0 z", &_box0.dim.z(), 0.5, 4);
+            ImGui::SliderFloat("Box1 x", &_box1.dim.x(), 0.5, 4);
+            ImGui::SliderFloat("Box1 y", &_box1.dim.y(), 0.5, 4);
+            ImGui::SliderFloat("Box1 z", &_box1.dim.z(), 0.5, 4);
         }
         if (ImGui::CollapsingHeader("Physics State", ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::InputFloat("Box0 Mass", &_box0.mass);

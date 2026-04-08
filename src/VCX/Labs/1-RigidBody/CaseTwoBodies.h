@@ -47,6 +47,7 @@ namespace VCX::Labs::RigidBody {
 
 
         glm::vec3                           _boxColor { 0.75f, 0.92f, 1.0f };
+        glm::vec3                           _dim { 1.f, 1.f, 1.f };
 
         float                               _restitution { 0.8f }; // Coefficient of restitution for collision response
         bool                                _pause { false }; // Pause the simulation to inspect the collision state
