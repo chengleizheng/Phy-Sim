@@ -43,8 +43,16 @@ namespace VCX::Labs::RigidBody {
     void CaseTwoBodies::OnSetupPropsUI() {
         ImGui::Checkbox("Pause Simulation", &_pause);
         ImGui::SliderFloat("c", &_restitution, 0.0f, 1.0f);
+        if (ImGui::CollapsingHeader("Appearance", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::ColorEdit3("Box0 Color", glm::value_ptr(_boxColor));
+            ImGui::ColorEdit3("Box1 Color", glm::value_ptr(_boxColor));
+        }
+        if (ImGui::CollapsingHeader("Physics State", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::InputFloat("Box0 Mass", &_box0.mass);
+            ImGui::InputFloat("Box1 Mass", &_box1.mass);
+        }
         
-        if (ImGui::Button("Reset Scenario: Head-on")) {
+        if (ImGui::Button("Reset Scenario: Face-Face Collision")) {
             _box0.center = Eigen::Vector3f(-3.f, 0.f, 0.f);
             _box0.velocity = Eigen::Vector3f(2.f, 0.f, 0.f);
             _box0.angularVelocity = Eigen::Vector3f(0.f, 0.f, 0.f);
@@ -56,7 +64,7 @@ namespace VCX::Labs::RigidBody {
             _box1.orientation = Eigen::Quaternionf(1.f, 0.f, 0.f, 0.f);
         }
         
-        if (ImGui::Button("Reset Scenario: Corner Hit")) {
+        if (ImGui::Button("Reset Scenario: Edge-Edge Collision")) {
 
 
             _box0.center = Eigen::Vector3f(-3.f, 0.3f, 0.3f); // 偏移一点以产生旋转
@@ -68,6 +76,17 @@ namespace VCX::Labs::RigidBody {
             _box1.velocity = Eigen::Vector3f(-2.f, 0.f, 0.f);
             _box1.angularVelocity = Eigen::Vector3f(0.f, 0.f, 0.f);
             _box1.orientation = Eigen::Quaternionf(Eigen::AngleAxisf(3.1415926f / 4.0f, Eigen::Vector3f::UnitZ()));
+        }
+        if (ImGui::Button("Reset Scenario: Vertex-Face Collision")) {
+            _box0.center = Eigen::Vector3f(-3.f, 0.f, 0.f); // 更大的偏移产生擦边碰撞
+            _box0.velocity = Eigen::Vector3f(2.f, 0.f, 0.f);
+            _box0.angularVelocity = Eigen::Vector3f(0.f, 0.f, 0.f);
+            _box0.orientation = Eigen::Quaternionf(1.f, 0.f, 0.f, 0.f);
+
+            _box1.center = Eigen::Vector3f(3.f, 0.1f, 0.1f);
+            _box1.velocity = Eigen::Vector3f(-2.f, 0.f, 0.f);
+            _box1.angularVelocity = Eigen::Vector3f(0.f, 0.f, 0.f);
+            _box1.orientation = Eigen::Quaternionf(0.9239f,0.2706f,0.2706f,0.2706f);
         }
     }
 
@@ -117,8 +136,6 @@ namespace VCX::Labs::RigidBody {
         
             if (contacts.empty()) return;
 
-            // [修复 2] 多触点平均化 (Contact Manifold Averaging)
-            // 将面面碰撞产生的多个点融合成一个等效的中心受力点
             Eigen::Vector3f avg_pos = Eigen::Vector3f::Zero();
             Eigen::Vector3f avg_normal = Eigen::Vector3f::Zero();
             float max_depth = 0.0f;
@@ -152,9 +169,6 @@ namespace VCX::Labs::RigidBody {
 
         Eigen::Vector3f v_rel = vA_p - vB_p;
 
-        // [修复 1] 相对速度判定修正 [cite: 1]
-        // 法线 n 现在指向 A。如果 A, B 正在互相靠近，v_rel 必然和 n 呈钝角。
-        // 所以 v_rel.dot(n) < 0 才代表它们正在“撞击”。大于 0 则说明已经弹开。
         float relVelAlongNormal = v_rel.dot(n);
         if (relVelAlongNormal > 0) {
             return; 
@@ -181,8 +195,7 @@ namespace VCX::Labs::RigidBody {
         boxB.velocity -= J / boxB.mass;
         boxB.angularVelocity -= invIb * rB.cross(J);
 
-        // [强化] 位置修正 (Position Correction)
-        // 把 percent 调高到 0.8，让穿透后能更快被强制推开
+        // 位置修正 (Position Correction)
         const float percent = 0.8f; 
         const float slop = 0.01f;
         Eigen::Vector3f correction = (std::max(depth - slop, 0.0f) / ((1.0f / boxA.mass) + (1.0f / boxB.mass))) * percent * n;
@@ -226,8 +239,8 @@ namespace VCX::Labs::RigidBody {
         std::vector<glm::vec3> verts0;
         GetBoxVertices(_box0, verts0);
         auto span_bytes0 = Engine::make_span_bytes<glm::vec3>(verts0);
-        
-        _program.GetUniforms().SetByName("u_Color", _box0.boxColor);
+
+        _program.GetUniforms().SetByName("u_Color", _boxColor);
         _boxItem.UpdateVertexBuffer("position", span_bytes0);
         _boxItem.Draw({ _program.Use() });
         
@@ -240,7 +253,7 @@ namespace VCX::Labs::RigidBody {
         GetBoxVertices(_box1, verts1);
         auto span_bytes1 = Engine::make_span_bytes<glm::vec3>(verts1);
         
-        _program.GetUniforms().SetByName("u_Color", glm::vec3(0.8f, 0.4f, 0.4f)); // 给第二个盒子不同颜色
+        _program.GetUniforms().SetByName("u_Color", _boxColor); 
         _boxItem.UpdateVertexBuffer("position", span_bytes1);
         _boxItem.Draw({ _program.Use() });
         

@@ -118,7 +118,7 @@ namespace VCX::Labs::RigidBody {
         for (auto& box : _dynamicBoxes) {
             box.center += timeDelta * box.velocity;
             
-            // 为了演示理想的 1D 牛顿摆，我们在此强行消除旋转动能的耗散
+            // 为了演示理想的 1D 牛顿摆，在此强行消除旋转动能的耗散
             box.angularVelocity = Eigen::Vector3f::Zero();
             box.orientation = Eigen::Quaternionf::Identity();
         }

@@ -206,7 +206,6 @@ for (size_t i = 0; i < _dynamicBoxes.size(); ++i) {
 }
 
     // 2. 速度求解阶段 (Velocity Solver)
-    // 【关键修复 2】：多次迭代求解冲量，完美解决多个面同时碰撞（如墙角挤压）的系统冲突
     const int velocityIterations = 10;
     for (int iter = 0; iter < velocityIterations; ++iter) {
         for (auto& m : manifolds) {
@@ -215,7 +214,6 @@ for (size_t i = 0; i < _dynamicBoxes.size(); ++i) {
     }
 
     // 3. 位置修正阶段 (Position Solver)
-    // 【关键修复 3】：速度求解完成后，统一进行一次位置补偿，避免注入错误的能量导致抖动
     for (auto& m : manifolds) {
     bool aResting = (m.a->mass > 0.f && m.a->restingFrames > 5);
     bool bResting = (m.b->mass > 0.f && m.b->restingFrames > 5);
@@ -248,13 +246,11 @@ void CaseComplexScene::ApplyImpulse(Box& boxA, Box& boxB,
     float relVelAlongNormal = v_rel.dot(n);
     if (relVelAlongNormal > 0) return;
 
-    // ★ 修复：根据持续接触帧数动态调整恢复系数
     // 接触超过 N 帧视为静息，直接归零弹性，彻底消除抖动
     float e = _restitution;
     bool isResting = (boxA.mass > 0.f && boxA.restingFrames > 5) || 
                      (boxB.mass > 0.f && boxB.restingFrames > 5);
 
-    // ... 后续冲量计算不变 ...
     float invMassA = boxA.mass > 0.0f ? 1.0f / boxA.mass : 0.0f;
     float invMassB = boxB.mass > 0.0f ? 1.0f / boxB.mass : 0.0f;
     
@@ -318,12 +314,12 @@ void CaseComplexScene::ApplyPositionCorrection(Box& boxA, Box& boxB, const Eigen
         int hitIndex = forceData.second;
         
         if (glm::length(forceDelta) > 1e-6f && hitIndex >= 0 && hitIndex < _dynamicBoxes.size()) {
-    _dynamicBoxes[hitIndex].velocity += glm2eigen(forceDelta) / _dynamicBoxes[hitIndex].mass;
-    _dynamicBoxes[hitIndex].restingFrames = 0;
-    _activeBox = &_dynamicBoxes[hitIndex]; // 标记当前交互物体
-} else {
-    _activeBox = nullptr; // 没有交互时清空
-}
+            _dynamicBoxes[hitIndex].velocity += glm2eigen(forceDelta) / _dynamicBoxes[hitIndex].mass;
+            _dynamicBoxes[hitIndex].restingFrames = 0;
+            _activeBox = &_dynamicBoxes[hitIndex]; // 标记当前交互物体
+        } else {
+            _activeBox = nullptr; // 没有交互时清空
+        }
 
         Advance(Engine::GetDeltaTime());
 
