@@ -1,59 +1,35 @@
+// CaseFlip.h
 #pragma once
-
-#include "Engine/GL/Frame.hpp"
-#include "Engine/GL/Program.h"
-#include "Engine/GL/UniformBlock.hpp"
-#include "Engine/Sphere.h"
-#include "Labs/2-FluidSimulation/FluidSimulator.h"
+#include "FluidSimulator.h"
+#include "BoundaryConditions.h"
 #include "Labs/Common/ICase.h"
-#include "Labs/Common/ImageRGB.h"
-#include "Labs/Common/OrbitCameraManager.h"
-#include "Labs/Scene/Content.h"
-#include "Labs/Scene/SceneObject.h"
-
+#include "Engine/GL/..."   // 和 Lab1 一致
 
 namespace VCX::Labs::Fluid {
 
-    class CaseFluid : public Common::ICase {
-    public:
-        CaseFluid(std::initializer_list<Assets::ExampleScene> && scenes);
+class CaseFlip : public Common::ICase {
+public:
+    CaseFlip();
+    void                     OnSetupPropsUI() override;
+    Common::CaseRenderResult OnRender(std::pair<uint32_t,uint32_t> desiredSize) override;
+    void                     OnProcessInput(ImVec2 const& pos) override;
 
-        virtual std::string_view const GetName() override { return "Fluid Simulation"; }
+private:
+    void Advance(float dt);  // 调 _sim.runSubStepLoop()
 
-        virtual void                     OnSetupPropsUI() override;
-        virtual Common::CaseRenderResult OnRender(std::pair<std::uint32_t, std::uint32_t> const desiredSize) override;
-        virtual void                     OnProcessInput(ImVec2 const & pos) override;
+    FluidSimulator   _sim { 40, 40, 0.025f };  // 网格规模
+    BoundaryConditions _bc;
 
-    private:
-        std::vector<Assets::ExampleScene> const _scenes;
+    // UI 参数
+    int   _numSubSteps = 3;
+    float _dt          = 0.016f;
 
-        Engine::GL::UniqueProgram         _program;
-        Engine::GL::UniqueProgram         _lineprogram;
-        Engine::GL::UniqueRenderFrame     _frame;
-        VCX::Labs::Rendering::SceneObject _sceneObject;
-        std::size_t                       _sceneIdx { 0 };
-        bool                              _recompute { true };
-        bool                              _uniformDirty { true };
-        int                               _msaa { 2 };
-        int                               _useBlinn { 0 };
-        float                             _shininess { 32 };
-        float                             _ambientScale { 1 };
-        bool                              _useGammaCorrection { true };
-        int                               _attenuationOrder { 2 };
-        int                               _bumpMappingPercent { 20 };
+    // 渲染（和 Lab1 的 _boxItem 一样）
+    Engine::GL::UniqueRenderFrame      _frame;
+    Engine::GL::UniqueProgram          _program;
+    Engine::GL::UniqueIndexedRenderItem _particleItem;
+    Engine::GL::Camera                  _camera;
+    Engine::GL::CameraManager           _cameraManager;
+};
 
-        Engine::GL::UniqueIndexedRenderItem _BoundaryItem;
-        Common::OrbitCameraManager          _cameraManager;
-        float                               _BndWidth { 2.0 };
-        bool                                _stopped { false };
-        Engine::Model                       _sphere;
-        int                                 _res { 16 };
-        float                               _r;
-        int                                 numofSpheres;
-        Fluid::Simulator                    _simulation;
-
-        char const *          GetSceneName(std::size_t const i) const { return VCX::Labs::Rendering::Content::SceneNames[std::size_t(_scenes[i])].c_str(); }
-        Engine::Scene const & GetScene(std::size_t const i) const { return VCX::Labs::Rendering::Content::Scenes[std::size_t(_scenes[i])]; }
-        void                  ResetSystem();
-    };
-} // namespace VCX::Labs::GettingStarted
+} // namespace
