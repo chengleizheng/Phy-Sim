@@ -2,24 +2,24 @@
 
 namespace VCX::Labs::Fluid {
 
-void MACGrid::resize(int _nx, int _ny, float _h) {
-    nx = _nx; ny = _ny; h = _h;
-    u.assign((nx+1)*ny, 0.f);
-    v.assign(nx*(ny+1), 0.f);
-    uOld = u; vOld = v;
-    p.assign(nx*ny, 0.f);
-    cellType.assign(nx*ny, 0);
+void MACGrid::resize(int _nx, int _ny, int _nz, float _h) {
+    nx = _nx; ny = _ny; nz = _nz; h = _h;
+    u.assign((nx+1)*ny*nz, 0.f);
+    v.assign(nx*(ny+1)*nz, 0.f);
+    w.assign(nx*ny*(nz+1), 0.f);
+    uOld = u; vOld = v; wOld = w;
+    p.assign(nx*ny*nz, 0.f);
+    cellType.assign(nx*ny*nz, 0);
 }
 
-FluidSimulator::FluidSimulator(int nx, int ny, float h) {
-    grid.resize(nx, ny, h);
+FluidSimulator::FluidSimulator(int nx, int ny, int nz, float h) {
+    grid.resize(nx, ny, nz, h);
 }
 
 // ── 主循环（你规划的那段代码直接放这里）──
-void FluidSimulator::runSubStepLoop(int numSubSteps, float sdt,
-                                    const BoundaryConditions& bc) {
+void FluidSimulator::StimulateTimestep(float const dt) {
     for (int step = 0; step < numSubSteps; ++step) {
-        integrateParticles(sdt);
+        integrateParticles(dt);
         handleParticleCollisions(bc);
         transferVelocities(true);            // P2G
         solveIncompressibility();
@@ -27,10 +27,10 @@ void FluidSimulator::runSubStepLoop(int numSubSteps, float sdt,
     }
 }
 
-void FluidSimulator::integrateParticles(float sdt) {
+void FluidSimulator::integrateParticles(float const dt) {
     for (auto& p : particles) {
-        p.vel.y() += gravity * sdt;   // 重力
-        p.pos     += sdt * p.vel;     // 欧拉积分
+        p.vel.y() += gravity * dt;   // 重力
+        p.pos     += dt * p.vel;     // 欧拉积分
     }
 }
 

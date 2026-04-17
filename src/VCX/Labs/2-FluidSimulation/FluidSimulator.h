@@ -19,11 +19,13 @@ struct MACGrid {
     std::vector<float> uOld, vOld, wOld;  // FLIP 用的旧速度快照
     std::vector<float> p;           // 压力场
     std::vector<int>   cellType;    // 0=air 1=fluid 2=solid
+    std::vector<float> particleDensity;
+    float restDensity = 0.f;    //首帧计算后固定
 
     void resize(int _nx, int _ny, int _nz, float _h);
 
     int uIdx(int i,int j,int k) const { return k*(nx+1)*ny + j*(nx+1) + i; }
-    int vIdx(int i,int j,int k) const { return k*nx*ny + j*nx + i; }
+    int vIdx(int i,int j,int k) const { return k*nx*(ny+1) + j*nx + i; }
     int wIdx(int i,int j,int k) const { return k*nx*ny + j*nx + i; }
     int cIdx(int i,int j,int k) const { return k*nx*ny + j*nx + i; }
 };
@@ -43,12 +45,11 @@ public:
     FluidSimulator(int nx, int ny, int nz, float h);
 
     // 你规划的主循环，CaseFlip::Advance 只调这一个函数
-    void StimulateTimestep(float dt);
+    void StimulateTimestep(float const dt);
 
-    //=======调整到这里=========
 
 private:
-    void integrateParticles(float dt);
+    void integrateParticles(float const dt);
     void handleParticleCollisions(const BoundaryConditions& bc);
     void transferVelocities(bool toGrid, float flipRatio = 0.95f);
     void solveIncompressibility();
