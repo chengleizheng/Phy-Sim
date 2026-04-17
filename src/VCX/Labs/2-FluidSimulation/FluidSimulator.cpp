@@ -1,4 +1,3 @@
-// FluidSimulator.cpp
 #include "FluidSimulator.h"
 
 namespace VCX::Labs::Fluid {

@@ -1,4 +1,12 @@
-// CaseFlip.cpp 核心部分
+#include "Labs/2-FluidSimulation/CaseFluid.h"
+#include "Labs/Common/ImGuiHelper.h"
+#include "Engine/app.h"
+#include <iostream>
+
+namespace VCX::Labs::Fluid {
+    CaseFluid
+}
+
 
 void CaseFlip::OnSetupPropsUI() {
     if (ImGui::CollapsingHeader("Simulation", ImGuiTreeNodeFlags_DefaultOpen)) {
