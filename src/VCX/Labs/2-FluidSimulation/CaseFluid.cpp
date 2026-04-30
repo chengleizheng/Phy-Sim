@@ -12,7 +12,7 @@ namespace VCX::Labs::Fluid {
         _program(
             Engine::GL::UniqueProgram({ Engine::GL::SharedShader("assets/shaders/fluid.vert"),
                                         Engine::GL::SharedShader("assets/shaders/fluid.frag") })),
-        _sphere(Engine::Sphere(4, _sim.grid.h * 0.48f), 0) {
+        _sphere(Engine::Sphere(4, _sim.grid.h * 0.25f), 0) {
 
         // ── 绑定 PassConstants ──
         _program.BindUniformBlock("PassConstants", 1);
@@ -52,7 +52,6 @@ namespace VCX::Labs::Fluid {
                 _sim.initializeParticles();
             }
             ImGui::SameLine();
-            ImGui::Text("Particles: %zu", _sim.particles.size());
         }
         ImGui::Spacing();
     }

@@ -22,21 +22,22 @@ FluidSimulator::FluidSimulator(int nx, int ny, int nz, float h) {
     _hash.cellSize = h * 2.f;  // 哈希格大小为网格间距的 2 倍
 }
 
-// ── 粒子初始化：在域上方生成流体块，让重力将其拉下 ──
+// ── 粒子初始化：在域上方生成 ~1/6 体积的紧凑流体块 ──
 void FluidSimulator::initializeParticles() {
     particles.clear();
 
     float domainSize = grid.nx * grid.h;
     float margin     = grid.h * 3.f;
-    float spacing    = grid.h * 0.5f;                       // 每格约 8 个粒子
+    float blockLen   = domainSize * 0.75f;                   // 边长 ≈ 域边长的 75%, 体积 ≈ 1/6
+    float spacing    = grid.h * 0.5f;                        // 每格约 8 个粒子
 
-    // 填充上半部分区域：x,z 居中，y 从 40% 处往上
-    float xStart = margin;
-    float xEnd   = domainSize - margin;
-    float yStart = domainSize * 0.35f;
+    // x, z 居中, y 贴近顶部
+    float xStart = (domainSize - blockLen) * 0.3f;
+    float xEnd   = xStart + blockLen;
     float yEnd   = domainSize - margin;
-    float zStart = margin;
-    float zEnd   = domainSize - margin;
+    float yStart = yEnd - blockLen;
+    float zStart = (domainSize - blockLen) * 0.3f;
+    float zEnd   = zStart + blockLen;
 
     for (float x = xStart; x < xEnd; x += spacing)
         for (float y = yStart; y < yEnd; y += spacing)
@@ -189,19 +190,16 @@ void FluidSimulator::transferVelocities(bool toGrid, float flipRatio) {
 
             // ── u 面（x 方向交错）──
             {
-                int   i0  = int(std::floor(px - 0.5f));
-                int   j0  = int(std::floor(py));
-                int   k0  = int(std::floor(pz));
-                float wx  = (px - 0.5f) - i0;
-                float wy  = py - j0;
-                float wz  = pz - k0;
+                int   i0  = int(std::floor(px));
+                int   j0  = int(std::floor(py - 0.5f));
+                int   k0  = int(std::floor(pz - 0.5f));
+                float wx  = px - i0;
+                float wy  = (py - 0.5f) - j0;
+                float wz  = (pz - 0.5f) - k0;
 
-                i0 = std::max(0, std::min(i0, grid.nx - 1));
-                int i1 = std::min(i0 + 1, grid.nx);
-                j0    = std::max(0, std::min(j0, grid.ny - 1));
-                int j1 = std::min(j0 + 1, grid.ny - 1);
-                k0    = std::max(0, std::min(k0, grid.nz - 1));
-                int k1 = std::min(k0 + 1, grid.nz - 1);
+                i0 = std::clamp(i0, 0, grid.nx - 1); int i1 = std::min(i0+1, grid.nx);
+                j0 = std::clamp(j0, 0, grid.ny - 2); int j1 = j0 + 1;
+                k0 = std::clamp(k0, 0, grid.nz - 2); int k1 = k0 + 1;
 
                 float w[8] = { (1 - wx) * (1 - wy) * (1 - wz), wx * (1 - wy) * (1 - wz),
                                (1 - wx) * wy * (1 - wz),       wx * wy * (1 - wz),
@@ -220,19 +218,16 @@ void FluidSimulator::transferVelocities(bool toGrid, float flipRatio) {
 
             // ── v 面（y 方向交错）──
             {
-                int   i0  = int(std::floor(px));
-                int   j0  = int(std::floor(py - 0.5f));
-                int   k0  = int(std::floor(pz));
-                float wx  = px - i0;
-                float wy  = (py - 0.5f) - j0;
-                float wz  = pz - k0;
+                int   i0  = int(std::floor(px - 0.5f));
+                int   j0  = int(std::floor(py));
+                int   k0  = int(std::floor(pz - 0.5f));
+                float wx  = (px - 0.5f) - i0;
+                float wy  = py - j0;
+                float wz  = (pz - 0.5f) - k0;
 
-                i0    = std::max(0, std::min(i0, grid.nx - 1));
-                int i1 = std::min(i0 + 1, grid.nx - 1);
-                j0    = std::max(0, std::min(j0, grid.ny - 1));
-                int j1 = std::min(j0 + 1, grid.ny);
-                k0    = std::max(0, std::min(k0, grid.nz - 1));
-                int k1 = std::min(k0 + 1, grid.nz - 1);
+                i0 = std::clamp(i0, 0, grid.nx - 2); int i1 = i0 + 1;
+                j0 = std::clamp(j0, 0, grid.ny - 1); int j1 = std::min(j0 + 1, grid.ny);
+                k0 = std::clamp(k0, 0, grid.nz - 2); int k1 = k0 + 1;
 
                 float w[8] = { (1 - wx) * (1 - wy) * (1 - wz), wx * (1 - wy) * (1 - wz),
                                (1 - wx) * wy * (1 - wz),       wx * wy * (1 - wz),
@@ -251,19 +246,16 @@ void FluidSimulator::transferVelocities(bool toGrid, float flipRatio) {
 
             // ── w 面（z 方向交错）──
             {
-                int   i0  = int(std::floor(px));
-                int   j0  = int(std::floor(py));
-                int   k0  = int(std::floor(pz - 0.5f));
-                float wx  = px - i0;
-                float wy  = py - j0;
-                float wz  = (pz - 0.5f) - k0;
+                int   i0  = int(std::floor(px - 0.5f));
+                int   j0  = int(std::floor(py - 0.5f));
+                int   k0  = int(std::floor(pz));
+                float wx  = (px - 0.5f) - i0;
+                float wy  = (py - 0.5f) - j0;
+                float wz  = pz - k0;
 
-                i0    = std::max(0, std::min(i0, grid.nx - 1));
-                int i1 = std::min(i0 + 1, grid.nx - 1);
-                j0    = std::max(0, std::min(j0, grid.ny - 1));
-                int j1 = std::min(j0 + 1, grid.ny - 1);
-                k0    = std::max(0, std::min(k0, grid.nz - 1));
-                int k1 = std::min(k0 + 1, grid.nz);
+                i0 = std::clamp(i0, 0, grid.nx - 2); int i1 = i0 + 1;
+                j0 = std::clamp(j0, 0, grid.ny - 2); int j1 = j0 + 1;
+                k0 = std::clamp(k0, 0, grid.nz - 1); int k1 = std::min(k0 + 1, grid.nz - 1);
 
                 float w[8] = { (1 - wx) * (1 - wy) * (1 - wz), wx * (1 - wy) * (1 - wz),
                                (1 - wx) * wy * (1 - wz),       wx * wy * (1 - wz),
@@ -298,74 +290,96 @@ void FluidSimulator::transferVelocities(bool toGrid, float flipRatio) {
 
             // ── 三线性插值辅助 lambda ──
             auto sampleU = [&](float x, float y, float z) -> float {
-                int   i0 = int(std::floor(x - 0.5f));
-                int   j0 = int(std::floor(y));
-                int   k0 = int(std::floor(z));
-                float wx = (x - 0.5f) - i0, wy = y - j0, wz = z - k0;
-                i0 = std::max(0, std::min(i0, grid.nx));
-                int i1 = std::min(i0 + 1, grid.nx);
-                j0 = std::max(0, std::min(j0, grid.ny - 1));
-                int j1 = std::min(j0 + 1, grid.ny - 1);
-                k0 = std::max(0, std::min(k0, grid.nz - 1));
-                int k1 = std::min(k0 + 1, grid.nz - 1);
-                return (1 - wx) * (1 - wy) * (1 - wz) * grid.u[grid.uIdx(i0, j0, k0)] + wx * (1 - wy) * (1 - wz) * grid.u[grid.uIdx(i1, j0, k0)] + (1 - wx) * wy * (1 - wz) * grid.u[grid.uIdx(i0, j1, k0)] + wx * wy * (1 - wz) * grid.u[grid.uIdx(i1, j1, k0)] + (1 - wx) * (1 - wy) * wz * grid.u[grid.uIdx(i0, j0, k1)] + wx * (1 - wy) * wz * grid.u[grid.uIdx(i1, j0, k1)] + (1 - wx) * wy * wz * grid.u[grid.uIdx(i0, j1, k1)] + wx * wy * wz * grid.u[grid.uIdx(i1, j1, k1)];
+            int   i0 = int(std::floor(x));              // x: 整数方向，无偏移
+            int   j0 = int(std::floor(y - 0.5f));       // y: 半整数方向
+            int   k0 = int(std::floor(z - 0.5f));       // z: 半整数方向
+            float wx = x - i0;
+            float wy = (y - 0.5f) - j0;
+            float wz = (z - 0.5f) - k0;
+            i0 = std::clamp(i0, 0, grid.nx - 1); int i1 = std::min(i0 + 1, grid.nx);     // u: x方向 nx+1 个面
+            j0 = std::clamp(j0, 0, grid.ny - 2); int j1 = j0 + 1;
+            k0 = std::clamp(k0, 0, grid.nz - 2); int k1 = k0 + 1;
+            return (1-wx)*(1-wy)*(1-wz)*grid.u[grid.uIdx(i0,j0,k0)] + wx*(1-wy)*(1-wz)*grid.u[grid.uIdx(i1,j0,k0)]
+                + (1-wx)*wy*(1-wz)*grid.u[grid.uIdx(i0,j1,k0)]     + wx*wy*(1-wz)*grid.u[grid.uIdx(i1,j1,k0)]
+                + (1-wx)*(1-wy)*wz*grid.u[grid.uIdx(i0,j0,k1)]     + wx*(1-wy)*wz*grid.u[grid.uIdx(i1,j0,k1)]
+                + (1-wx)*wy*wz*grid.u[grid.uIdx(i0,j1,k1)]         + wx*wy*wz*grid.u[grid.uIdx(i1,j1,k1)];
             };
             auto sampleV = [&](float x, float y, float z) -> float {
-                int   i0 = int(std::floor(x)), j0 = int(std::floor(y - 0.5f)), k0 = int(std::floor(z));
-                float wx = x - i0, wy = (y - 0.5f) - j0, wz = z - k0;
-                i0 = std::max(0, std::min(i0, grid.nx - 1));
-                int i1 = std::min(i0 + 1, grid.nx - 1);
-                j0 = std::max(0, std::min(j0, grid.ny));
-                int j1 = std::min(j0 + 1, grid.ny);
-                k0 = std::max(0, std::min(k0, grid.nz - 1));
-                int k1 = std::min(k0 + 1, grid.nz - 1);
-                return (1 - wx) * (1 - wy) * (1 - wz) * grid.v[grid.vIdx(i0, j0, k0)] + wx * (1 - wy) * (1 - wz) * grid.v[grid.vIdx(i1, j0, k0)] + (1 - wx) * wy * (1 - wz) * grid.v[grid.vIdx(i0, j1, k0)] + wx * wy * (1 - wz) * grid.v[grid.vIdx(i1, j1, k0)] + (1 - wx) * (1 - wy) * wz * grid.v[grid.vIdx(i0, j0, k1)] + wx * (1 - wy) * wz * grid.v[grid.vIdx(i1, j0, k1)] + (1 - wx) * wy * wz * grid.v[grid.vIdx(i0, j1, k1)] + wx * wy * wz * grid.v[grid.vIdx(i1, j1, k1)];
+            int   i0 = int(std::floor(x - 0.5f));      // x: 半整数方向
+            int   j0 = int(std::floor(y));              // y: 整数方向，无偏移
+            int   k0 = int(std::floor(z - 0.5f));       // z: 半整数方向
+            float wx = (x - 0.5f) - i0;
+            float wy = y - j0;
+            float wz = (z - 0.5f) - k0;
+            i0 = std::clamp(i0, 0, grid.nx - 2); int i1 = i0 + 1;
+            j0 = std::clamp(j0, 0, grid.ny - 1); int j1 = std::min(j0 + 1, grid.ny);     // v: y方向 ny+1 个面
+            k0 = std::clamp(k0, 0, grid.nz - 2); int k1 = k0 + 1;
+            return (1-wx)*(1-wy)*(1-wz)*grid.v[grid.vIdx(i0,j0,k0)] + wx*(1-wy)*(1-wz)*grid.v[grid.vIdx(i1,j0,k0)]
+                + (1-wx)*wy*(1-wz)*grid.v[grid.vIdx(i0,j1,k0)]     + wx*wy*(1-wz)*grid.v[grid.vIdx(i1,j1,k0)]
+                + (1-wx)*(1-wy)*wz*grid.v[grid.vIdx(i0,j0,k1)]     + wx*(1-wy)*wz*grid.v[grid.vIdx(i1,j0,k1)]
+                + (1-wx)*wy*wz*grid.v[grid.vIdx(i0,j1,k1)]         + wx*wy*wz*grid.v[grid.vIdx(i1,j1,k1)];
             };
             auto sampleW = [&](float x, float y, float z) -> float {
-                int   i0 = int(std::floor(x)), j0 = int(std::floor(y)), k0 = int(std::floor(z - 0.5f));
-                float wx = x - i0, wy = y - j0, wz = (z - 0.5f) - k0;
-                i0 = std::max(0, std::min(i0, grid.nx - 1));
-                int i1 = std::min(i0 + 1, grid.nx - 1);
-                j0 = std::max(0, std::min(j0, grid.ny - 1));
-                int j1 = std::min(j0 + 1, grid.ny - 1);
-                k0 = std::max(0, std::min(k0, grid.nz));
-                int k1 = std::min(k0 + 1, grid.nz);
-                return (1 - wx) * (1 - wy) * (1 - wz) * grid.w[grid.wIdx(i0, j0, k0)] + wx * (1 - wy) * (1 - wz) * grid.w[grid.wIdx(i1, j0, k0)] + (1 - wx) * wy * (1 - wz) * grid.w[grid.wIdx(i0, j1, k0)] + wx * wy * (1 - wz) * grid.w[grid.wIdx(i1, j1, k0)] + (1 - wx) * (1 - wy) * wz * grid.w[grid.wIdx(i0, j0, k1)] + wx * (1 - wy) * wz * grid.w[grid.wIdx(i1, j0, k1)] + (1 - wx) * wy * wz * grid.w[grid.wIdx(i0, j1, k1)] + wx * wy * wz * grid.w[grid.wIdx(i1, j1, k1)];
+            int   i0 = int(std::floor(x - 0.5f));      // x: 半整数方向
+            int   j0 = int(std::floor(y - 0.5f));       // y: 半整数方向
+            int   k0 = int(std::floor(z));              // z: 整数方向，无偏移
+            float wx = (x - 0.5f) - i0;
+            float wy = (y - 0.5f) - j0;
+            float wz = z - k0;
+            i0 = std::clamp(i0, 0, grid.nx - 2); int i1 = i0 + 1;
+            j0 = std::clamp(j0, 0, grid.ny - 2); int j1 = j0 + 1;
+            k0 = std::clamp(k0, 0, grid.nz - 1); int k1 = std::min(k0 + 1, grid.nz);     // w: z方向 nz+1 个面
+            return (1-wx)*(1-wy)*(1-wz)*grid.w[grid.wIdx(i0,j0,k0)] + wx*(1-wy)*(1-wz)*grid.w[grid.wIdx(i1,j0,k0)]
+                + (1-wx)*wy*(1-wz)*grid.w[grid.wIdx(i0,j1,k0)]     + wx*wy*(1-wz)*grid.w[grid.wIdx(i1,j1,k0)]
+                + (1-wx)*(1-wy)*wz*grid.w[grid.wIdx(i0,j0,k1)]     + wx*(1-wy)*wz*grid.w[grid.wIdx(i1,j0,k1)]
+                + (1-wx)*wy*wz*grid.w[grid.wIdx(i0,j1,k1)]         + wx*wy*wz*grid.w[grid.wIdx(i1,j1,k1)];
             };
 
             // 同样的 lambda 对旧速度
             auto sampleUOld = [&](float x, float y, float z) -> float {
-                int   i0 = int(std::floor(x - 0.5f)), j0 = int(std::floor(y)), k0 = int(std::floor(z));
-                float wx = (x - 0.5f) - i0, wy = y - j0, wz = z - k0;
-                i0 = std::max(0, std::min(i0, grid.nx));
-                int i1 = std::min(i0 + 1, grid.nx);
-                j0 = std::max(0, std::min(j0, grid.ny - 1));
-                int j1 = std::min(j0 + 1, grid.ny - 1);
-                k0 = std::max(0, std::min(k0, grid.nz - 1));
-                int k1 = std::min(k0 + 1, grid.nz - 1);
-                return (1 - wx) * (1 - wy) * (1 - wz) * grid.uOld[grid.uIdx(i0, j0, k0)] + wx * (1 - wy) * (1 - wz) * grid.uOld[grid.uIdx(i1, j0, k0)] + (1 - wx) * wy * (1 - wz) * grid.uOld[grid.uIdx(i0, j1, k0)] + wx * wy * (1 - wz) * grid.uOld[grid.uIdx(i1, j1, k0)] + (1 - wx) * (1 - wy) * wz * grid.uOld[grid.uIdx(i0, j0, k1)] + wx * (1 - wy) * wz * grid.uOld[grid.uIdx(i1, j0, k1)] + (1 - wx) * wy * wz * grid.uOld[grid.uIdx(i0, j1, k1)] + wx * wy * wz * grid.uOld[grid.uIdx(i1, j1, k1)];
+            int   i0 = int(std::floor(x));              // x: 整数方向，无偏移
+            int   j0 = int(std::floor(y - 0.5f));       // y: 半整数方向
+            int   k0 = int(std::floor(z - 0.5f));       // z: 半整数方向
+            float wx = x - i0;
+            float wy = (y - 0.5f) - j0;
+            float wz = (z - 0.5f) - k0;
+            i0 = std::clamp(i0, 0, grid.nx - 1); int i1 = std::min(i0 + 1, grid.nx);     // u: x方向 nx+1 个面
+            j0 = std::clamp(j0, 0, grid.ny - 2); int j1 = j0 + 1;
+            k0 = std::clamp(k0, 0, grid.nz - 2); int k1 = k0 + 1;
+            return (1-wx)*(1-wy)*(1-wz)*grid.u[grid.uIdx(i0,j0,k0)] + wx*(1-wy)*(1-wz)*grid.u[grid.uIdx(i1,j0,k0)]
+                + (1-wx)*wy*(1-wz)*grid.u[grid.uIdx(i0,j1,k0)]     + wx*wy*(1-wz)*grid.u[grid.uIdx(i1,j1,k0)]
+                + (1-wx)*(1-wy)*wz*grid.u[grid.uIdx(i0,j0,k1)]     + wx*(1-wy)*wz*grid.u[grid.uIdx(i1,j0,k1)]
+                + (1-wx)*wy*wz*grid.u[grid.uIdx(i0,j1,k1)]         + wx*wy*wz*grid.u[grid.uIdx(i1,j1,k1)];
             };
             auto sampleVOld = [&](float x, float y, float z) -> float {
-                int   i0 = int(std::floor(x)), j0 = int(std::floor(y - 0.5f)), k0 = int(std::floor(z));
-                float wx = x - i0, wy = (y - 0.5f) - j0, wz = z - k0;
-                i0 = std::max(0, std::min(i0, grid.nx - 1));
-                int i1 = std::min(i0 + 1, grid.nx - 1);
-                j0 = std::max(0, std::min(j0, grid.ny));
-                int j1 = std::min(j0 + 1, grid.ny);
-                k0 = std::max(0, std::min(k0, grid.nz - 1));
-                int k1 = std::min(k0 + 1, grid.nz - 1);
-                return (1 - wx) * (1 - wy) * (1 - wz) * grid.vOld[grid.vIdx(i0, j0, k0)] + wx * (1 - wy) * (1 - wz) * grid.vOld[grid.vIdx(i1, j0, k0)] + (1 - wx) * wy * (1 - wz) * grid.vOld[grid.vIdx(i0, j1, k0)] + wx * wy * (1 - wz) * grid.vOld[grid.vIdx(i1, j1, k0)] + (1 - wx) * (1 - wy) * wz * grid.vOld[grid.vIdx(i0, j0, k1)] + wx * (1 - wy) * wz * grid.vOld[grid.vIdx(i1, j0, k1)] + (1 - wx) * wy * wz * grid.vOld[grid.vIdx(i0, j1, k1)] + wx * wy * wz * grid.vOld[grid.vIdx(i1, j1, k1)];
+            int   i0 = int(std::floor(x - 0.5f));      // x: 半整数方向
+            int   j0 = int(std::floor(y));              // y: 整数方向，无偏移
+            int   k0 = int(std::floor(z - 0.5f));       // z: 半整数方向
+            float wx = (x - 0.5f) - i0;
+            float wy = y - j0;
+            float wz = (z - 0.5f) - k0;
+            i0 = std::clamp(i0, 0, grid.nx - 2); int i1 = i0 + 1;
+            j0 = std::clamp(j0, 0, grid.ny - 1); int j1 = std::min(j0 + 1, grid.ny);     // v: y方向 ny+1 个面
+            k0 = std::clamp(k0, 0, grid.nz - 2); int k1 = k0 + 1;
+            return (1-wx)*(1-wy)*(1-wz)*grid.v[grid.vIdx(i0,j0,k0)] + wx*(1-wy)*(1-wz)*grid.v[grid.vIdx(i1,j0,k0)]
+                + (1-wx)*wy*(1-wz)*grid.v[grid.vIdx(i0,j1,k0)]     + wx*wy*(1-wz)*grid.v[grid.vIdx(i1,j1,k0)]
+                + (1-wx)*(1-wy)*wz*grid.v[grid.vIdx(i0,j0,k1)]     + wx*(1-wy)*wz*grid.v[grid.vIdx(i1,j0,k1)]
+                + (1-wx)*wy*wz*grid.v[grid.vIdx(i0,j1,k1)]         + wx*wy*wz*grid.v[grid.vIdx(i1,j1,k1)];
             };
             auto sampleWOld = [&](float x, float y, float z) -> float {
-                int   i0 = int(std::floor(x)), j0 = int(std::floor(y)), k0 = int(std::floor(z - 0.5f));
-                float wx = x - i0, wy = y - j0, wz = (z - 0.5f) - k0;
-                i0 = std::max(0, std::min(i0, grid.nx - 1));
-                int i1 = std::min(i0 + 1, grid.nx - 1);
-                j0 = std::max(0, std::min(j0, grid.ny - 1));
-                int j1 = std::min(j0 + 1, grid.ny - 1);
-                k0 = std::max(0, std::min(k0, grid.nz));
-                int k1 = std::min(k0 + 1, grid.nz);
-                return (1 - wx) * (1 - wy) * (1 - wz) * grid.wOld[grid.wIdx(i0, j0, k0)] + wx * (1 - wy) * (1 - wz) * grid.wOld[grid.wIdx(i1, j0, k0)] + (1 - wx) * wy * (1 - wz) * grid.wOld[grid.wIdx(i0, j1, k0)] + wx * wy * (1 - wz) * grid.wOld[grid.wIdx(i1, j1, k0)] + (1 - wx) * (1 - wy) * wz * grid.wOld[grid.wIdx(i0, j0, k1)] + wx * (1 - wy) * wz * grid.wOld[grid.wIdx(i1, j0, k1)] + (1 - wx) * wy * wz * grid.wOld[grid.wIdx(i0, j1, k1)] + wx * wy * wz * grid.wOld[grid.wIdx(i1, j1, k1)];
+            int   i0 = int(std::floor(x - 0.5f));      // x: 半整数方向
+            int   j0 = int(std::floor(y - 0.5f));       // y: 半整数方向
+            int   k0 = int(std::floor(z));              // z: 整数方向，无偏移
+            float wx = (x - 0.5f) - i0;
+            float wy = (y - 0.5f) - j0;
+            float wz = z - k0;
+            i0 = std::clamp(i0, 0, grid.nx - 2); int i1 = i0 + 1;
+            j0 = std::clamp(j0, 0, grid.ny - 2); int j1 = j0 + 1;
+            k0 = std::clamp(k0, 0, grid.nz - 1); int k1 = std::min(k0 + 1, grid.nz);     // w: z方向 nz+1 个面
+            return (1-wx)*(1-wy)*(1-wz)*grid.w[grid.wIdx(i0,j0,k0)] + wx*(1-wy)*(1-wz)*grid.w[grid.wIdx(i1,j0,k0)]
+                + (1-wx)*wy*(1-wz)*grid.w[grid.wIdx(i0,j1,k0)]     + wx*wy*(1-wz)*grid.w[grid.wIdx(i1,j1,k0)]
+                + (1-wx)*(1-wy)*wz*grid.w[grid.wIdx(i0,j0,k1)]     + wx*(1-wy)*wz*grid.w[grid.wIdx(i1,j0,k1)]
+                + (1-wx)*wy*wz*grid.w[grid.wIdx(i0,j1,k1)]         + wx*wy*wz*grid.w[grid.wIdx(i1,j1,k1)];
             };
 
             Eigen::Vector3f vPIC(sampleU(px, py, pz), sampleV(px, py, pz), sampleW(px, py, pz));
@@ -424,9 +438,9 @@ void FluidSimulator::solveIncompressibility(float sdt) {
 
     // 在每次迭代前清零压力是一个选择; 这里用累积压力
     for (int iter = 0; iter < numPressureIters; iter++) {
-        for (int i = 0; i < grid.nx; i++)
-            for (int j = 0; j < grid.ny; j++)
-                for (int k = 0; k < grid.nz; k++) {
+        for (int i = 1; i < grid.nx-1; i++)
+            for (int j = 1; j < grid.ny-1; j++)
+                for (int k = 1; k < grid.nz-1; k++) {
                     int cIdx = grid.cIdx(i, j, k);
                     if (grid.cellType[cIdx] != 1) continue;   // 只处理流体格
 
@@ -444,7 +458,7 @@ void FluidSimulator::solveIncompressibility(float sdt) {
                     if (compensateDrift) {
                         float density = grid.particleDensity[cIdx];
                         if (density > 0.f)
-                            div += (density / rho - 1.f) / sdt;
+                            div -= (density / rho - 1.f) / sdt;
                     }
 
                     // ── SOR 压力修正 ──

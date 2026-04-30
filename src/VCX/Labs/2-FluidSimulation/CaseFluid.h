@@ -28,7 +28,7 @@ private:
     // ── 仿真 ──
     FluidSimulator _sim { 28, 28, 28, 1.0f / 28 };  // 网格 28³, 域 [0,1]³
     float          _dt          = 0.016f;
-    int            _numSubSteps = 3;
+    int            _numSubSteps = 1;
 
     // ── 渲染（fluid.vert/frag + 球体实例化）──
     Engine::GL::UniqueRenderFrame       _frame;
