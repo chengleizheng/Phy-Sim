@@ -26,7 +26,7 @@ private:
     void Advance();
 
     // ── 仿真 ──
-    FluidSimulator _sim { 28, 28, 28, 1.0f / 28 };  // 网格 28³, 域 [0,1]³
+    FluidSimulator _sim { 25, 25, 25, 1.0f / 25 };  // 网格 25³, 域 [0,1]³
     float          _dt          = 0.016f;
     int            _numSubSteps = 1;
 

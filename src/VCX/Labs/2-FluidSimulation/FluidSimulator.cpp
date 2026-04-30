@@ -29,7 +29,7 @@ void FluidSimulator::initializeParticles() {
     float domainSize = grid.nx * grid.h;
     float margin     = grid.h * 3.f;
     float blockLen   = domainSize * 0.75f;                   // 边长 ≈ 域边长的 75%, 体积 ≈ 1/6
-    float spacing    = grid.h * 0.5f;                        // 每格约 8 个粒子
+    float spacing    = grid.h * 0.55f;                        // 每格约 8 个粒子
 
     // x, z 居中, y 贴近顶部
     float xStart = (domainSize - blockLen) * 0.3f;
