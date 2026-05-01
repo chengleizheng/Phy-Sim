@@ -28,7 +28,7 @@ void FluidSimulator::initializeParticles() {
 
     float domainSize = grid.nx * grid.h;
     float margin     = grid.h * 3.f;
-    float blockLen   = domainSize * 0.75f;                   // 边长 ≈ 域边长的 75%, 体积 ≈ 1/6
+    float blockLen   = domainSize * 0.65f;                   // 边长 ≈ 域边长的 65%, 体积 ≈ 1/6
     float spacing    = grid.h * 0.55f;                        // 每格约 8 个粒子
 
     // x, z 居中, y 贴近顶部
@@ -284,112 +284,127 @@ void FluidSimulator::transferVelocities(bool toGrid, float flipRatio) {
 
     } else {
         // ═══ G2P: MAC 网格速度 → 粒子 (FLIP/PIC 混合) ═══
+        //   + validity: 只从流体面插值，跳过 air-air 界面 (参考 2D FLIP)
+
+        auto uValid = [&](int i, int j, int k) -> bool {
+            int c0 = grid.cIdx(std::max(i-1,0), j, k);
+            int c1 = grid.cIdx(std::min(i, grid.nx-1), j, k);
+            return grid.cellType[c0]==1 || grid.cellType[c1]==1;
+        };
+        auto vValid = [&](int i, int j, int k) -> bool {
+            int c0 = grid.cIdx(i, std::max(j-1,0), k);
+            int c1 = grid.cIdx(i, std::min(j, grid.ny-1), k);
+            return grid.cellType[c0]==1 || grid.cellType[c1]==1;
+        };
+        auto wValid = [&](int i, int j, int k) -> bool {
+            int c0 = grid.cIdx(i, j, std::max(k-1,0));
+            int c1 = grid.cIdx(i, j, std::min(k, grid.nz-1));
+            return grid.cellType[c0]==1 || grid.cellType[c1]==1;
+        };
+
+        auto sampleU = [&](float x, float y, float z) -> float {
+            int i0 = int(std::floor(x)), j0 = int(std::floor(y-0.5f)), k0 = int(std::floor(z-0.5f));
+            float wx = x-i0, wy = (y-0.5f)-j0, wz = (z-0.5f)-k0;
+            i0 = std::clamp(i0,0,grid.nx-1); int i1 = std::min(i0+1,grid.nx);
+            j0 = std::clamp(j0,0,grid.ny-2); int j1 = j0+1;
+            k0 = std::clamp(k0,0,grid.nz-2); int k1 = k0+1;
+            float w[8]={(1-wx)*(1-wy)*(1-wz),wx*(1-wy)*(1-wz),(1-wx)*wy*(1-wz),wx*wy*(1-wz),
+                         (1-wx)*(1-wy)*wz,wx*(1-wy)*wz,(1-wx)*wy*wz,wx*wy*wz};
+            int is[8]={i0,i1,i0,i1,i0,i1,i0,i1}, js[8]={j0,j0,j1,j1,j0,j0,j1,j1}, ks[8]={k0,k0,k0,k0,k1,k1,k1,k1};
+            float sum=0.f, wt=0.f;
+            for(int n=0;n<8;n++) if(uValid(is[n],js[n],ks[n])) {
+                sum += w[n]*grid.u[grid.uIdx(is[n],js[n],ks[n])]; wt += w[n];
+            }
+            return wt>1e-8f ? sum/wt : 0.f;
+        };
+        auto sampleV = [&](float x, float y, float z) -> float {
+            int i0 = int(std::floor(x-0.5f)), j0 = int(std::floor(y)), k0 = int(std::floor(z-0.5f));
+            float wx = (x-0.5f)-i0, wy = y-j0, wz = (z-0.5f)-k0;
+            i0 = std::clamp(i0,0,grid.nx-2); int i1 = i0+1;
+            j0 = std::clamp(j0,0,grid.ny-1); int j1 = std::min(j0+1,grid.ny);
+            k0 = std::clamp(k0,0,grid.nz-2); int k1 = k0+1;
+            float w[8]={(1-wx)*(1-wy)*(1-wz),wx*(1-wy)*(1-wz),(1-wx)*wy*(1-wz),wx*wy*(1-wz),
+                         (1-wx)*(1-wy)*wz,wx*(1-wy)*wz,(1-wx)*wy*wz,wx*wy*wz};
+            int is[8]={i0,i1,i0,i1,i0,i1,i0,i1}, js[8]={j0,j0,j1,j1,j0,j0,j1,j1}, ks[8]={k0,k0,k0,k0,k1,k1,k1,k1};
+            float sum=0.f, wt=0.f;
+            for(int n=0;n<8;n++) if(vValid(is[n],js[n],ks[n])) {
+                sum += w[n]*grid.v[grid.vIdx(is[n],js[n],ks[n])]; wt += w[n];
+            }
+            return wt>1e-8f ? sum/wt : 0.f;
+        };
+        auto sampleW = [&](float x, float y, float z) -> float {
+            int i0 = int(std::floor(x-0.5f)), j0 = int(std::floor(y-0.5f)), k0 = int(std::floor(z));
+            float wx = (x-0.5f)-i0, wy = (y-0.5f)-j0, wz = z-k0;
+            i0 = std::clamp(i0,0,grid.nx-2); int i1 = i0+1;
+            j0 = std::clamp(j0,0,grid.ny-2); int j1 = j0+1;
+            k0 = std::clamp(k0,0,grid.nz-1); int k1 = std::min(k0+1,grid.nz);
+            float w[8]={(1-wx)*(1-wy)*(1-wz),wx*(1-wy)*(1-wz),(1-wx)*wy*(1-wz),wx*wy*(1-wz),
+                         (1-wx)*(1-wy)*wz,wx*(1-wy)*wz,(1-wx)*wy*wz,wx*wy*wz};
+            int is[8]={i0,i1,i0,i1,i0,i1,i0,i1}, js[8]={j0,j0,j1,j1,j0,j0,j1,j1}, ks[8]={k0,k0,k0,k0,k1,k1,k1,k1};
+            float sum=0.f, wt=0.f;
+            for(int n=0;n<8;n++) if(wValid(is[n],js[n],ks[n])) {
+                sum += w[n]*grid.w[grid.wIdx(is[n],js[n],ks[n])]; wt += w[n];
+            }
+            return wt>1e-8f ? sum/wt : 0.f;
+        };
+
+        // Old-velocity samples — 同样带 validity 检查
+        auto sampleUOld = [&](float x, float y, float z) -> float {
+            int i0 = int(std::floor(x)), j0 = int(std::floor(y-0.5f)), k0 = int(std::floor(z-0.5f));
+            float wx = x-i0, wy = (y-0.5f)-j0, wz = (z-0.5f)-k0;
+            i0 = std::clamp(i0,0,grid.nx-1); int i1 = std::min(i0+1,grid.nx);
+            j0 = std::clamp(j0,0,grid.ny-2); int j1 = j0+1;
+            k0 = std::clamp(k0,0,grid.nz-2); int k1 = k0+1;
+            float w[8]={(1-wx)*(1-wy)*(1-wz),wx*(1-wy)*(1-wz),(1-wx)*wy*(1-wz),wx*wy*(1-wz),
+                         (1-wx)*(1-wy)*wz,wx*(1-wy)*wz,(1-wx)*wy*wz,wx*wy*wz};
+            int is[8]={i0,i1,i0,i1,i0,i1,i0,i1}, js[8]={j0,j0,j1,j1,j0,j0,j1,j1}, ks[8]={k0,k0,k0,k0,k1,k1,k1,k1};
+            float sum=0.f, wt=0.f;
+            for(int n=0;n<8;n++) if(uValid(is[n],js[n],ks[n])) {
+                sum += w[n]*grid.uOld[grid.uIdx(is[n],js[n],ks[n])]; wt += w[n];
+            }
+            return wt>1e-8f ? sum/wt : 0.f;
+        };
+        auto sampleVOld = [&](float x, float y, float z) -> float {
+            int i0 = int(std::floor(x-0.5f)), j0 = int(std::floor(y)), k0 = int(std::floor(z-0.5f));
+            float wx = (x-0.5f)-i0, wy = y-j0, wz = (z-0.5f)-k0;
+            i0 = std::clamp(i0,0,grid.nx-2); int i1 = i0+1;
+            j0 = std::clamp(j0,0,grid.ny-1); int j1 = std::min(j0+1,grid.ny);
+            k0 = std::clamp(k0,0,grid.nz-2); int k1 = k0+1;
+            float w[8]={(1-wx)*(1-wy)*(1-wz),wx*(1-wy)*(1-wz),(1-wx)*wy*(1-wz),wx*wy*(1-wz),
+                         (1-wx)*(1-wy)*wz,wx*(1-wy)*wz,(1-wx)*wy*wz,wx*wy*wz};
+            int is[8]={i0,i1,i0,i1,i0,i1,i0,i1}, js[8]={j0,j0,j1,j1,j0,j0,j1,j1}, ks[8]={k0,k0,k0,k0,k1,k1,k1,k1};
+            float sum=0.f, wt=0.f;
+            for(int n=0;n<8;n++) if(vValid(is[n],js[n],ks[n])) {
+                sum += w[n]*grid.vOld[grid.vIdx(is[n],js[n],ks[n])]; wt += w[n];
+            }
+            return wt>1e-8f ? sum/wt : 0.f;
+        };
+        auto sampleWOld = [&](float x, float y, float z) -> float {
+            int i0 = int(std::floor(x-0.5f)), j0 = int(std::floor(y-0.5f)), k0 = int(std::floor(z));
+            float wx = (x-0.5f)-i0, wy = (y-0.5f)-j0, wz = z-k0;
+            i0 = std::clamp(i0,0,grid.nx-2); int i1 = i0+1;
+            j0 = std::clamp(j0,0,grid.ny-2); int j1 = j0+1;
+            k0 = std::clamp(k0,0,grid.nz-1); int k1 = std::min(k0+1,grid.nz);
+            float w[8]={(1-wx)*(1-wy)*(1-wz),wx*(1-wy)*(1-wz),(1-wx)*wy*(1-wz),wx*wy*(1-wz),
+                         (1-wx)*(1-wy)*wz,wx*(1-wy)*wz,(1-wx)*wy*wz,wx*wy*wz};
+            int is[8]={i0,i1,i0,i1,i0,i1,i0,i1}, js[8]={j0,j0,j1,j1,j0,j0,j1,j1}, ks[8]={k0,k0,k0,k0,k1,k1,k1,k1};
+            float sum=0.f, wt=0.f;
+            for(int n=0;n<8;n++) if(wValid(is[n],js[n],ks[n])) {
+                sum += w[n]*grid.wOld[grid.wIdx(is[n],js[n],ks[n])]; wt += w[n];
+            }
+            return wt>1e-8f ? sum/wt : 0.f;
+        };
+
         for (auto& p : particles) {
             float px = p.pos.x() / grid.h;
             float py = p.pos.y() / grid.h;
             float pz = p.pos.z() / grid.h;
 
-            // ── 三线性插值辅助 lambda ──
-            auto sampleU = [&](float x, float y, float z) -> float {
-            int   i0 = int(std::floor(x));              // x: 整数方向，无偏移
-            int   j0 = int(std::floor(y - 0.5f));       // y: 半整数方向
-            int   k0 = int(std::floor(z - 0.5f));       // z: 半整数方向
-            float wx = x - i0;
-            float wy = (y - 0.5f) - j0;
-            float wz = (z - 0.5f) - k0;
-            i0 = std::clamp(i0, 0, grid.nx - 1); int i1 = std::min(i0 + 1, grid.nx);     // u: x方向 nx+1 个面
-            j0 = std::clamp(j0, 0, grid.ny - 2); int j1 = j0 + 1;
-            k0 = std::clamp(k0, 0, grid.nz - 2); int k1 = k0 + 1;
-            return (1-wx)*(1-wy)*(1-wz)*grid.u[grid.uIdx(i0,j0,k0)] + wx*(1-wy)*(1-wz)*grid.u[grid.uIdx(i1,j0,k0)]
-                + (1-wx)*wy*(1-wz)*grid.u[grid.uIdx(i0,j1,k0)]     + wx*wy*(1-wz)*grid.u[grid.uIdx(i1,j1,k0)]
-                + (1-wx)*(1-wy)*wz*grid.u[grid.uIdx(i0,j0,k1)]     + wx*(1-wy)*wz*grid.u[grid.uIdx(i1,j0,k1)]
-                + (1-wx)*wy*wz*grid.u[grid.uIdx(i0,j1,k1)]         + wx*wy*wz*grid.u[grid.uIdx(i1,j1,k1)];
-            };
-            auto sampleV = [&](float x, float y, float z) -> float {
-            int   i0 = int(std::floor(x - 0.5f));      // x: 半整数方向
-            int   j0 = int(std::floor(y));              // y: 整数方向，无偏移
-            int   k0 = int(std::floor(z - 0.5f));       // z: 半整数方向
-            float wx = (x - 0.5f) - i0;
-            float wy = y - j0;
-            float wz = (z - 0.5f) - k0;
-            i0 = std::clamp(i0, 0, grid.nx - 2); int i1 = i0 + 1;
-            j0 = std::clamp(j0, 0, grid.ny - 1); int j1 = std::min(j0 + 1, grid.ny);     // v: y方向 ny+1 个面
-            k0 = std::clamp(k0, 0, grid.nz - 2); int k1 = k0 + 1;
-            return (1-wx)*(1-wy)*(1-wz)*grid.v[grid.vIdx(i0,j0,k0)] + wx*(1-wy)*(1-wz)*grid.v[grid.vIdx(i1,j0,k0)]
-                + (1-wx)*wy*(1-wz)*grid.v[grid.vIdx(i0,j1,k0)]     + wx*wy*(1-wz)*grid.v[grid.vIdx(i1,j1,k0)]
-                + (1-wx)*(1-wy)*wz*grid.v[grid.vIdx(i0,j0,k1)]     + wx*(1-wy)*wz*grid.v[grid.vIdx(i1,j0,k1)]
-                + (1-wx)*wy*wz*grid.v[grid.vIdx(i0,j1,k1)]         + wx*wy*wz*grid.v[grid.vIdx(i1,j1,k1)];
-            };
-            auto sampleW = [&](float x, float y, float z) -> float {
-            int   i0 = int(std::floor(x - 0.5f));      // x: 半整数方向
-            int   j0 = int(std::floor(y - 0.5f));       // y: 半整数方向
-            int   k0 = int(std::floor(z));              // z: 整数方向，无偏移
-            float wx = (x - 0.5f) - i0;
-            float wy = (y - 0.5f) - j0;
-            float wz = z - k0;
-            i0 = std::clamp(i0, 0, grid.nx - 2); int i1 = i0 + 1;
-            j0 = std::clamp(j0, 0, grid.ny - 2); int j1 = j0 + 1;
-            k0 = std::clamp(k0, 0, grid.nz - 1); int k1 = std::min(k0 + 1, grid.nz);     // w: z方向 nz+1 个面
-            return (1-wx)*(1-wy)*(1-wz)*grid.w[grid.wIdx(i0,j0,k0)] + wx*(1-wy)*(1-wz)*grid.w[grid.wIdx(i1,j0,k0)]
-                + (1-wx)*wy*(1-wz)*grid.w[grid.wIdx(i0,j1,k0)]     + wx*wy*(1-wz)*grid.w[grid.wIdx(i1,j1,k0)]
-                + (1-wx)*(1-wy)*wz*grid.w[grid.wIdx(i0,j0,k1)]     + wx*(1-wy)*wz*grid.w[grid.wIdx(i1,j0,k1)]
-                + (1-wx)*wy*wz*grid.w[grid.wIdx(i0,j1,k1)]         + wx*wy*wz*grid.w[grid.wIdx(i1,j1,k1)];
-            };
-
-            // 同样的 lambda 对旧速度
-            auto sampleUOld = [&](float x, float y, float z) -> float {
-            int   i0 = int(std::floor(x));
-            int   j0 = int(std::floor(y - 0.5f));
-            int   k0 = int(std::floor(z - 0.5f));
-            float wx = x - i0;
-            float wy = (y - 0.5f) - j0;
-            float wz = (z - 0.5f) - k0;
-            i0 = std::clamp(i0, 0, grid.nx - 1); int i1 = std::min(i0 + 1, grid.nx);
-            j0 = std::clamp(j0, 0, grid.ny - 2); int j1 = j0 + 1;
-            k0 = std::clamp(k0, 0, grid.nz - 2); int k1 = k0 + 1;
-            return (1-wx)*(1-wy)*(1-wz)*grid.uOld[grid.uIdx(i0,j0,k0)] + wx*(1-wy)*(1-wz)*grid.uOld[grid.uIdx(i1,j0,k0)]
-                + (1-wx)*wy*(1-wz)*grid.uOld[grid.uIdx(i0,j1,k0)]     + wx*wy*(1-wz)*grid.uOld[grid.uIdx(i1,j1,k0)]
-                + (1-wx)*(1-wy)*wz*grid.uOld[grid.uIdx(i0,j0,k1)]     + wx*(1-wy)*wz*grid.uOld[grid.uIdx(i1,j0,k1)]
-                + (1-wx)*wy*wz*grid.uOld[grid.uIdx(i0,j1,k1)]         + wx*wy*wz*grid.uOld[grid.uIdx(i1,j1,k1)];
-            };
-            auto sampleVOld = [&](float x, float y, float z) -> float {
-            int   i0 = int(std::floor(x - 0.5f));
-            int   j0 = int(std::floor(y));
-            int   k0 = int(std::floor(z - 0.5f));
-            float wx = (x - 0.5f) - i0;
-            float wy = y - j0;
-            float wz = (z - 0.5f) - k0;
-            i0 = std::clamp(i0, 0, grid.nx - 2); int i1 = i0 + 1;
-            j0 = std::clamp(j0, 0, grid.ny - 1); int j1 = std::min(j0 + 1, grid.ny);
-            k0 = std::clamp(k0, 0, grid.nz - 2); int k1 = k0 + 1;
-            return (1-wx)*(1-wy)*(1-wz)*grid.vOld[grid.vIdx(i0,j0,k0)] + wx*(1-wy)*(1-wz)*grid.vOld[grid.vIdx(i1,j0,k0)]
-                + (1-wx)*wy*(1-wz)*grid.vOld[grid.vIdx(i0,j1,k0)]     + wx*wy*(1-wz)*grid.vOld[grid.vIdx(i1,j1,k0)]
-                + (1-wx)*(1-wy)*wz*grid.vOld[grid.vIdx(i0,j0,k1)]     + wx*(1-wy)*wz*grid.vOld[grid.vIdx(i1,j0,k1)]
-                + (1-wx)*wy*wz*grid.vOld[grid.vIdx(i0,j1,k1)]         + wx*wy*wz*grid.vOld[grid.vIdx(i1,j1,k1)];
-            };
-            auto sampleWOld = [&](float x, float y, float z) -> float {
-            int   i0 = int(std::floor(x - 0.5f));
-            int   j0 = int(std::floor(y - 0.5f));
-            int   k0 = int(std::floor(z));
-            float wx = (x - 0.5f) - i0;
-            float wy = (y - 0.5f) - j0;
-            float wz = z - k0;
-            i0 = std::clamp(i0, 0, grid.nx - 2); int i1 = i0 + 1;
-            j0 = std::clamp(j0, 0, grid.ny - 2); int j1 = j0 + 1;
-            k0 = std::clamp(k0, 0, grid.nz - 1); int k1 = std::min(k0 + 1, grid.nz);
-            return (1-wx)*(1-wy)*(1-wz)*grid.wOld[grid.wIdx(i0,j0,k0)] + wx*(1-wy)*(1-wz)*grid.wOld[grid.wIdx(i1,j0,k0)]
-                + (1-wx)*wy*(1-wz)*grid.wOld[grid.wIdx(i0,j1,k0)]     + wx*wy*(1-wz)*grid.wOld[grid.wIdx(i1,j1,k0)]
-                + (1-wx)*(1-wy)*wz*grid.wOld[grid.wIdx(i0,j0,k1)]     + wx*(1-wy)*wz*grid.wOld[grid.wIdx(i1,j0,k1)]
-                + (1-wx)*wy*wz*grid.wOld[grid.wIdx(i0,j1,k1)]         + wx*wy*wz*grid.wOld[grid.wIdx(i1,j1,k1)];
-            };
-
             Eigen::Vector3f vPIC(sampleU(px, py, pz), sampleV(px, py, pz), sampleW(px, py, pz));
-
             Eigen::Vector3f vOldAtP(sampleUOld(px, py, pz), sampleVOld(px, py, pz), sampleWOld(px, py, pz));
             Eigen::Vector3f vNewAtP(sampleU(px, py, pz), sampleV(px, py, pz), sampleW(px, py, pz));
             Eigen::Vector3f dv     = vNewAtP - vOldAtP;
 
-            // FLIP/PIC 混合：v = (1-α)·v_PIC + α·(v_old + dv)
             p.vel = (1.f - flipRatio) * vPIC + flipRatio * (p.vel + dv);
         }
     }
