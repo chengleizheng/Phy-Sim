@@ -46,7 +46,6 @@ namespace VCX::Labs::Fluid {
         if (ImGui::CollapsingHeader("Simulation", ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::SliderFloat("dt",           &_dt,                   0.001f, 0.05f);
             ImGui::SliderFloat("flipRatio",    &_sim.flipRatio,        0.f,    1.f,   "%.2f");
-            ImGui::SliderInt  ("subSteps",     &_numSubSteps,          1,      10);
             ImGui::SliderInt  ("pressureIters",&_sim.numPressureIters, 1,      200);
             if (ImGui::Button("Reset")) {
                 _sim.initializeParticles();
