@@ -6,6 +6,10 @@ static glm::vec3 eigen2glm(const Eigen::Vector3f & v) {
     return glm::vec3(v.x(), v.y(), v.z());
 }
 
+static Eigen::Vector3f glm2eigen(const glm::vec3 & v) {
+    return Eigen::Vector3f(v.x, v.y, v.z);
+}
+
 namespace VCX::Labs::Fluid {
 
     CaseFluid::CaseFluid() :
@@ -20,7 +24,8 @@ namespace VCX::Labs::Fluid {
             Engine::GL::VertexLayout()
                 .Add<glm::vec3>("position", Engine::GL::DrawFrequency::Static, 0),
             Engine::GL::PrimitiveType::Lines),
-        _sphere(Engine::Sphere(4, _sim.grid.h * 0.17f), 0) {
+        _sphere(Engine::Sphere(4, _sim.grid.h * 0.17f), 0),
+        _obstacleSphere(Engine::Sphere(16, _sim.obstacleRadius), 0) {
 
         // ── 绑定 PassConstants ──
         _program.BindUniformBlock("PassConstants", 1);
@@ -73,10 +78,19 @@ namespace VCX::Labs::Fluid {
             ImGui::SliderFloat("dt",           &_dt,                   0.001f, 0.05f);
             ImGui::SliderFloat("flipRatio",    &_sim.flipRatio,        0.f,    1.f,   "%.2f");
             ImGui::SliderInt  ("pressureIters",&_sim.numPressureIters, 1,      200);
+            ImGui::Checkbox   ("CG Solver",   &_sim.useCG);
+            if (_sim.useCG)
+                ImGui::SliderFloat("CG Tolerance", &_sim.cgTolerance, 1e-6f, 1e-2f, "%.6f");
             if (ImGui::Button("Reset")) {
                 _sim.initializeParticles();
             }
             ImGui::SameLine();
+        }
+        ImGui::Spacing();
+        if (ImGui::CollapsingHeader("Obstacle", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::SliderFloat("Radius",   &_sim.obstacleRadius, 0.05f, 0.3f);
+            ImGui::SliderFloat3("Position", _sim.obstaclePos.data(), 0.f, 1.f);
+            ImGui::Text("Alt + drag to move obstacle");
         }
         ImGui::Spacing();
     }
@@ -86,6 +100,15 @@ namespace VCX::Labs::Fluid {
     }
 
     Common::CaseRenderResult CaseFluid::OnRender(std::pair<std::uint32_t, std::uint32_t> const desiredSize) {
+        // ── 鼠标拖拽障碍球 ──
+        glm::vec3 force = _forceManager.getForce();
+        if (glm::length(force) > 1e-6f) {
+            _sim.obstaclePos += glm2eigen(force);
+            _sim.obstacleVel  = glm2eigen(force) / _dt;
+        } else {
+            _sim.obstacleVel  = Eigen::Vector3f(0.f, 0.f, 0.f);
+        }
+
         Advance();
 
         _frame.Resize(desiredSize);
@@ -109,14 +132,39 @@ namespace VCX::Labs::Fluid {
         _particleOffsets.reserve(n);
         _particleColors.reserve(n);
 
+        // cell-centered trilinear 采样器
+        auto sampleCell = [&](float x, float y, float z, const std::vector<float>& data) -> float {
+            const float h  = _sim.grid.h;
+            const float h1 = 1.f / h;
+            const float h2 = 0.5f * h;
+            x = std::clamp(x, h, (_sim.grid.nx - 1) * h);
+            y = std::clamp(y, h, (_sim.grid.ny - 1) * h);
+            z = std::clamp(z, h, (_sim.grid.nz - 1) * h);
+            int i0 = std::clamp(int(std::floor((x - h2) * h1)), 0, _sim.grid.nx - 2);
+            float tx = ((x - h2) - i0 * h) * h1; int i1 = std::min(i0 + 1, _sim.grid.nx - 1);
+            int j0 = std::clamp(int(std::floor((y - h2) * h1)), 0, _sim.grid.ny - 2);
+            float ty = ((y - h2) - j0 * h) * h1; int j1 = std::min(j0 + 1, _sim.grid.ny - 1);
+            int k0 = std::clamp(int(std::floor((z - h2) * h1)), 0, _sim.grid.nz - 2);
+            float tz = ((z - h2) - k0 * h) * h1; int k1 = std::min(k0 + 1, _sim.grid.nz - 1);
+            float sx = 1.f - tx, sy = 1.f - ty, sz = 1.f - tz;
+            auto idx = [&](int i, int j, int k) { return _sim.grid.cIdx(i,j,k); };
+            return sx*sy*sz * data[idx(i0,j0,k0)] + tx*sy*sz * data[idx(i1,j0,k0)]
+                 + sx*ty*sz * data[idx(i0,j1,k0)] + tx*ty*sz * data[idx(i1,j1,k0)]
+                 + sx*sy*tz * data[idx(i0,j0,k1)] + tx*sy*tz * data[idx(i1,j0,k1)]
+                 + sx*ty*tz * data[idx(i0,j1,k1)] + tx*ty*tz * data[idx(i1,j1,k1)];
+        };
+
+        const float rho = _sim.grid.restDensity;
+
         for (auto & p : _sim.particles) {
             _particleOffsets.push_back(eigen2glm(p.pos));
-            float speed = p.vel.norm();
-            float t     = std::min(speed / 3.0f, 1.0f);
-            _particleColors.push_back(glm::vec3(0.1f + 0.1f * t, 0.35f + 0.25f * t, 0.55f + 0.45f * t));
+            float density = sampleCell(p.pos.x(), p.pos.y(), p.pos.z(), _sim.grid.particleDensity);
+            float t       = rho > 0.f ? std::clamp(density / rho, 0.f, 2.f) * 0.5f : 0.5f; // 0=浅蓝 1=深蓝
+            glm::vec3 light(0.55f, 0.75f, 1.0f);
+            glm::vec3 dark (0.02f, 0.08f, 0.25f);
+            _particleColors.push_back(glm::mix(light, dark, t));
         }
 
-        // ── 绘制（教授建议的 ModelObject 方式）──
         gl_using(_frame);
         glEnable(GL_DEPTH_TEST);
 
@@ -130,6 +178,13 @@ namespace VCX::Labs::Fluid {
             m.Mesh.Draw({ _program.Use() }, _sphere.Mesh.Indices.size(), 0, n);
         }
 
+        // ── 绘制障碍球 ──
+        {
+            std::vector<glm::vec3> obsOffset = { eigen2glm(_sim.obstaclePos) };
+            std::vector<glm::vec3> obsColor  = { glm::vec3(0.95f, 0.1f, 0.1f) };
+            Rendering::ModelObject obs = Rendering::ModelObject(_obstacleSphere, obsOffset, obsColor);
+            obs.Mesh.Draw({ _program.Use() }, _obstacleSphere.Mesh.Indices.size(), 0, 1);
+        }
         glDisable(GL_DEPTH_TEST);
 
         return Common::CaseRenderResult {
@@ -142,6 +197,7 @@ namespace VCX::Labs::Fluid {
 
     void CaseFluid::OnProcessInput(ImVec2 const & pos) {
         _cameraManager.ProcessInput(_camera, pos);
+        _forceManager.ProcessInput(_camera, pos);
     }
 
 } // namespace VCX::Labs::Fluid

@@ -1,6 +1,8 @@
 #include "FluidSimulator.h"
 #include <algorithm>
 #include <cmath>
+#include <Eigen/Sparse>
+#include <Eigen/IterativeLinearSolvers>
 
 namespace VCX::Labs::Fluid {
 
@@ -68,16 +70,12 @@ void FluidSimulator::StimulateTimestep(int numSubSteps, float dt) {
         if (cnt > 0) grid.restDensity = sum / cnt;
     }
 
-    // 默认障碍物：无 (半径=0)
-    Eigen::Vector3f obstaclePos(0.5f, 0.3f, 0.5f);
-    Eigen::Vector3f obstacleVel(0.f, 0.f, 0.f);
-
     for (int step = 0; step < numSubSteps; step++) {
         integrateParticles(sdt);
-        handleParticleCollisions(obstaclePos, 0.0f, obstacleVel);
+        handleParticleCollisions(obstaclePos, obstacleRadius, obstacleVel);
         if (separateParticles)
             pushParticlesApart(numParticleIters);
-        handleParticleCollisions(obstaclePos, 0.0f, obstacleVel);
+        handleParticleCollisions(obstaclePos, obstacleRadius, obstacleVel);
         transferVelocities(true, flipRatio);
         updateParticleDensity();
         solveIncompressibility(sdt);
@@ -444,7 +442,7 @@ void FluidSimulator::updateParticleDensity() {
 }
 
 // ── 6. Gauss-Seidel 压力求解 ──
-void FluidSimulator::solveIncompressibility(float sdt) {
+void FluidSimulator::solveIncompressibilityGS(float sdt) {
     if (grid.restDensity == 0.f) return;
 
     const float rho  = grid.restDensity;
@@ -497,6 +495,136 @@ void FluidSimulator::solveIncompressibility(float sdt) {
                     grid.w[grid.wIdx(i, j, k + 1)] += velCorr;
                 }
     }
+}
+
+// ── 6b. 调度器 ──
+void FluidSimulator::solveIncompressibility(float sdt) {
+    if (useCG)
+        solveIncompressibilityCG(sdt);
+    else
+        solveIncompressibilityGS(sdt);
+}
+
+// ── 6c. Conjugate Gradient 泊松求解 ──
+void FluidSimulator::solveIncompressibilityCG(float sdt) {
+    if (grid.restDensity == 0.f) return;
+
+    const float rho = grid.restDensity;
+    const float h   = grid.h;
+    const float h2  = h * h;
+    const int   nx  = grid.nx, ny = grid.ny, nz = grid.nz;
+
+    // ── 1. 映射 fluid cell → 线性索引 ──
+    std::vector<int> fluidToIdx(nx * ny * nz, -1);
+    std::vector<int> idxToCell;
+    for (int k = 1; k < nz - 1; k++)
+        for (int j = 1; j < ny - 1; j++)
+            for (int i = 1; i < nx - 1; i++) {
+                int c = grid.cIdx(i, j, k);
+                if (grid.cellType[c] == 1) {
+                    fluidToIdx[c] = (int) idxToCell.size();
+                    idxToCell.push_back(c);
+                }
+            }
+
+    const int N = (int) idxToCell.size();
+    if (N == 0) return;
+
+    // ── 2. 构建稀疏矩阵 A 和右端项 b ──
+    typedef Eigen::Triplet<float> T;
+    std::vector<T> triplets;
+    triplets.reserve(N * 7);
+
+    Eigen::VectorXf b(N);
+    b.setZero();
+
+    std::fill(grid.p.begin(), grid.p.end(), 0.f);
+
+    for (int idx = 0; idx < N; idx++) {
+        int flat = idxToCell[idx];
+        int k    = flat / (nx * ny);
+        int j    = (flat % (nx * ny)) / nx;
+        int i    = flat % nx;
+
+        int cnt = 0;
+
+        auto addNeighbor = [&](int ni, int nj, int nk) {
+            if (ni < 0 || ni >= nx || nj < 0 || nj >= ny || nk < 0 || nk >= nz) return;
+            cnt++;                                          // ★ 所有非固体邻格都计入对角线
+            int nc  = grid.cIdx(ni, nj, nk);
+            int nid = fluidToIdx[nc];
+            if (nid >= 0)                                   // 只有 fluid 邻格才加非对角元
+                triplets.push_back(T(idx, nid, -1.f));
+            // air 邻格: cnt++ 了但不加列，对应 p=0 的 Dirichlet 边界
+        };
+
+        addNeighbor(i + 1, j, k);
+        addNeighbor(i - 1, j, k);
+        addNeighbor(i, j + 1, k);
+        addNeighbor(i, j - 1, k);
+        addNeighbor(i, j, k + 1);
+        addNeighbor(i, j, k - 1);
+
+        triplets.push_back(T(idx, idx, (float) cnt));
+
+        if (cnt == 0) continue;
+
+        float div = (grid.u[grid.uIdx(i + 1, j, k)] - grid.u[grid.uIdx(i, j, k)]
+                   + grid.v[grid.vIdx(i, j + 1, k)] - grid.v[grid.vIdx(i, j, k)]
+                   + grid.w[grid.wIdx(i, j, k + 1)] - grid.w[grid.wIdx(i, j, k)]) / h;
+
+        if (compensateDrift) {
+            float compression = grid.particleDensity[grid.cIdx(i, j, k)] - rho;
+            if (compression > 0.f) div -= compression;
+        }
+
+        b[idx] = -(rho * h2 / sdt) * div;
+    }
+
+    // ── 3. CG 求解 A·p = b ──
+    Eigen::SparseMatrix<float> A(N, N);
+    A.setFromTriplets(triplets.begin(), triplets.end());
+
+    Eigen::ConjugateGradient<Eigen::SparseMatrix<float>, Eigen::Lower | Eigen::Upper> cg;
+    cg.setTolerance(cgTolerance);
+    cg.setMaxIterations(200);
+    cg.compute(A);
+
+    Eigen::VectorXf pVec = cg.solve(b);
+
+    // ── 4. 压力写入 grid.p ──
+    for (int idx = 0; idx < N; idx++)
+        grid.p[idxToCell[idx]] = pVec[idx];
+
+    // ── 5. 对每个 face 施加压力梯度修正 ──
+    const float fScale = sdt / (rho * h);   // Δu = fScale · Δp
+
+    // u-faces (x 方向)
+    for (int k = 0; k < nz; k++)
+        for (int j = 0; j < ny; j++)
+            for (int i = 1; i < nx; i++) {          // 跳过 i=0 和 i=nx（壁面）
+                float pL = grid.cellType[grid.cIdx(i - 1, j, k)] == 1 ? grid.p[grid.cIdx(i - 1, j, k)] : 0.f;
+                float pR = grid.cellType[grid.cIdx(i, j, k)]     == 1 ? grid.p[grid.cIdx(i, j, k)]     : 0.f;
+                grid.u[grid.uIdx(i, j, k)] -= fScale * (pR - pL);
+            }
+
+    // v-faces (y 方向)
+    for (int k = 0; k < nz; k++)
+        for (int j = 1; j < ny; j++)                  // 跳过 j=0 和 j=ny
+            for (int i = 0; i < nx; i++) {
+                float pB = grid.cellType[grid.cIdx(i, j - 1, k)] == 1 ? grid.p[grid.cIdx(i, j - 1, k)] : 0.f;
+                float pT = grid.cellType[grid.cIdx(i, j, k)]     == 1 ? grid.p[grid.cIdx(i, j, k)]     : 0.f;
+                grid.v[grid.vIdx(i, j, k)] -= fScale * (pT - pB);
+            }
+
+    // w-faces (z 方向)
+    for (int k = 1; k < nz; k++)                      // 跳过 k=0 和 k=nz
+        for (int j = 0; j < ny; j++)
+            for (int i = 0; i < nx; i++) {
+                float pP = grid.cellType[grid.cIdx(i, j, k - 1)] == 1 ? grid.p[grid.cIdx(i, j, k - 1)] : 0.f;
+                float pF = grid.cellType[grid.cIdx(i, j, k)]     == 1 ? grid.p[grid.cIdx(i, j, k)]     : 0.f;
+                grid.w[grid.wIdx(i, j, k)] -= fScale * (pF - pP);
+            }
 }
 
 } // namespace VCX::Labs::Fluid

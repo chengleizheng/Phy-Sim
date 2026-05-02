@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <unordered_map>
+#include <glm/glm.hpp>
 #include <Eigen/Dense>
 
 namespace VCX::Labs::Fluid {
@@ -67,6 +68,8 @@ public:
     bool  compensateDrift   = true;    // 是否补偿速度漂移
     bool  separateParticles = true;    // 是否启用 pushParticlesApart
     int   numParticleIters  = 2;       // pushParticlesApart 迭代次数
+    bool  useCG             = false;   // true=CG泊松求解, false=Gauss-Seidel
+    float cgTolerance       = 1e-4f;   // CG 收敛阈值
 
     // 边界
     Eigen::Vector3f minBound { 0.f, 0.f, 0.f };
@@ -74,6 +77,11 @@ public:
 
     std::vector<Particle> particles;
     MACGrid               grid;
+
+    // 障碍物（公开供 CaseFluid 渲染/UI）
+    Eigen::Vector3f obstaclePos    { 0.5f, 0.5f, 0.5f };
+    float           obstacleRadius = 0.15f;
+    Eigen::Vector3f obstacleVel    { 0.f, 0.f, 0.f };
 
     FluidSimulator(int nx, int ny, int nz, float h);
 
@@ -92,6 +100,8 @@ private:
     void transferVelocities(bool toGrid, float flipRatio);
     void updateParticleDensity();
     void solveIncompressibility(float sdt);
+    void solveIncompressibilityGS(float sdt);
+    void solveIncompressibilityCG(float sdt);
 
     SpatialHash _hash;
 };
