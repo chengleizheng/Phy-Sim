@@ -27,7 +27,7 @@ private:
 
     // ── 仿真 ──
     FluidSimulator _sim { 25, 25, 25, 1.0f / 25 };  // 网格 25³, 域 [0,1]³
-    float          _dt          = 0.016f;
+    float          _dt          = 0.007f;
     int            _numSubSteps = 1;
 
     // ── 渲染（fluid.vert/frag + 球体实例化）──
@@ -39,6 +39,12 @@ private:
     Engine::Model                       _sphere;            // 球体几何
     std::vector<glm::vec3>              _particleOffsets;   // 每帧构建
     std::vector<glm::vec3>              _particleColors;    // 每帧构建
+
+    Engine::GL::UniqueProgram          _lineprogram;   // flat shader
+    Engine::GL::UniqueIndexedRenderItem _BoundaryItem; // Lines
+    std::vector<glm::vec3>             _boundaryVerts;
+
+    void buildBoundaryBox();
 
     Labs::Rendering::SceneObject        _sceneObject { 1 }; // PassConstants 光照
 };

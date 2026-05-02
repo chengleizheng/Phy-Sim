@@ -128,7 +128,7 @@ void FluidSimulator::handleParticleCollisions(const Eigen::Vector3f& obstaclePos
 
 // ── 3. 推开重叠粒子（空间哈希加速）──
 void FluidSimulator::pushParticlesApart(int numIters) {
-    const float minDist   = grid.h * 0.4f;           // 粒子最小间距
+    const float minDist   = grid.h * 0.45f;           // 粒子最小间距
     const float minDistSq = minDist * minDist;
 
     _hash.cellSize = minDist * 2.f;                  // 哈希格大小 ≥ 搜索半径

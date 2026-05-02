@@ -62,7 +62,7 @@ public:
     // ── 公开参数（CaseFluid 通过 ImGui 直接绑定）──
     float flipRatio         = 0.95f;   // 0=PIC, 1=FLIP
     float gravity           = -9.8f;
-    int   numPressureIters  = 50;      // Gauss-Seidel 迭代次数
+    int   numPressureIters  = 75;      // Gauss-Seidel 迭代次数
     float overRelaxation    = 1.9f;    // SOR 超松弛因子
     bool  compensateDrift   = true;    // 是否补偿速度漂移
     bool  separateParticles = true;    // 是否启用 pushParticlesApart
