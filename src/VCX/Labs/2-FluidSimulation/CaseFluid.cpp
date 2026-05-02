@@ -80,7 +80,7 @@ namespace VCX::Labs::Fluid {
             ImGui::SliderInt  ("pressureIters",&_sim.numPressureIters, 1,      200);
             ImGui::Checkbox   ("CG Solver",   &_sim.useCG);
             if (_sim.useCG)
-                ImGui::SliderFloat("CG Tolerance", &_sim.cgTolerance, 1e-6f, 1e-2f, "%.6f");
+                ImGui::SliderFloat("CG Tolerance", &_sim.cgTolerance, 1e-7f, 1e-3f, "%.6f");
             if (ImGui::Button("Reset")) {
                 _sim.initializeParticles();
             }
@@ -88,9 +88,12 @@ namespace VCX::Labs::Fluid {
         }
         ImGui::Spacing();
         if (ImGui::CollapsingHeader("Obstacle", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::SliderFloat("Radius",   &_sim.obstacleRadius, 0.05f, 0.3f);
             ImGui::SliderFloat3("Position", _sim.obstaclePos.data(), 0.f, 1.f);
             ImGui::Text("Alt + drag to move obstacle");
+        }
+        ImGui::Spacing();
+        if (ImGui::CollapsingHeader("Display", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Combo("Color Mode", &_colorMode, "Speed\0Density\0Pressure\0");
         }
         ImGui::Spacing();
     }
@@ -155,14 +158,42 @@ namespace VCX::Labs::Fluid {
         };
 
         const float rho = _sim.grid.restDensity;
+        const glm::vec3 lightBlue(0.55f, 0.75f, 1.0f);
+        const glm::vec3 darkBlue (0.02f, 0.08f, 0.25f);
+
+        // 压强模式：动态计算流体格的压力范围
+        float pMin = 0.f, pMax = 1.f;
+        if (_colorMode == 2) {
+            pMin =  std::numeric_limits<float>::max();
+            pMax = -std::numeric_limits<float>::max();
+            for (int i = 0; i < _sim.grid.nx; i++)
+                for (int j = 0; j < _sim.grid.ny; j++)
+                    for (int k = 0; k < _sim.grid.nz; k++) {
+                        int idx = _sim.grid.cIdx(i, j, k);
+                        if (_sim.grid.cellType[idx] == 1) {
+                            float pv = _sim.grid.p[idx];
+                            if (pv < pMin) pMin = pv;
+                            if (pv > pMax) pMax = pv;
+                        }
+                    }
+            if (pMax - pMin < 1e-6f) pMax = pMin + 1e-6f;
+        }
 
         for (auto & p : _sim.particles) {
             _particleOffsets.push_back(eigen2glm(p.pos));
-            float density = sampleCell(p.pos.x(), p.pos.y(), p.pos.z(), _sim.grid.particleDensity);
-            float t       = rho > 0.f ? std::clamp(density / rho, 0.f, 2.f) * 0.5f : 0.5f; // 0=浅蓝 1=深蓝
-            glm::vec3 light(0.55f, 0.75f, 1.0f);
-            glm::vec3 dark (0.02f, 0.08f, 0.25f);
-            _particleColors.push_back(glm::mix(light, dark, t));
+            float t = 0.5f;
+
+            if (_colorMode == 0) {               // ── 速度 ──
+                t = std::clamp(p.vel.norm() / 3.0f, 0.f, 1.f);
+            } else if (_colorMode == 1) {        // ── 密度 ──
+                float d = sampleCell(p.pos.x(), p.pos.y(), p.pos.z(), _sim.grid.particleDensity);
+                t       = rho > 0.f ? std::clamp(d / rho, 0.f, 2.f) * 0.5f : 0.5f;
+            } else if (_colorMode == 2) {        // ── 压强（动态范围）──
+                float pv = sampleCell(p.pos.x(), p.pos.y(), p.pos.z(), _sim.grid.p);
+                t = std::clamp((pv - pMin) / (pMax - pMin), 0.f, 1.f);
+            }
+
+            _particleColors.push_back(glm::mix(lightBlue, darkBlue, t));
         }
 
         gl_using(_frame);
