@@ -49,7 +49,7 @@ private:
     std::vector<glm::vec3>             _boundaryVerts;
 
     Labs::Rendering::SceneObject        _sceneObject { 1 }; // PassConstants 光照
-    int                                 _colorMode = 0;     // 0=速度 1=密度 2=压强
+    int                                 _colorMode = 1;     // 0=速度 1=密度 2=压强
 };
 
 } // namespace VCX::Labs::Fluid
