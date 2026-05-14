@@ -33,7 +33,7 @@ private:
     Engine::GL::UniqueIndexedRenderItem _surfaceItem;
     Engine::GL::UniqueIndexedRenderItem _wireItem;
 
-    Engine::Camera             _camera { .Eye = glm::vec3(3, 2, 5), .Target = glm::vec3(0, 1.5, 0) };
+    Engine::Camera             _camera { .Eye = glm::vec3(5, 3, 5), .Target = glm::vec3(0, 0.5, 0) };
     Common::OrbitCameraManager _cameraManager;
     Common::ForceManager       _forceManager;
 
@@ -49,16 +49,18 @@ private:
     glm::vec3 _surfaceColor { 0.2f, 0.6f, 0.8f };
     bool      _showWireframe = true;
 
-    bool _fixTopFace = true;
+    bool _fixTopFace = false;
 
-    int _gridResX = 4;
-    int _gridResY = 12;
+    int _gridResX = 12;
+    int _gridResY = 4;
     int _gridResZ = 4;
 
-    glm::vec3 _beamOrigin { -0.5f, 0.0f, -0.5f };
-    glm::vec3 _beamSize   { 1.0f, 3.0f, 1.0f };
+    glm::vec3 _beamOrigin { -1.5f, 0.0f, -0.5f };
+    glm::vec3 _beamSize   { 3.0f, 1.0f, 1.0f };
 
-    float _floorY = -0.05f;
+    float _floorY    = 0.0f;
+    float _liftForce = 50.0f;
+    int _numSubsteps = 30;
 
     bool _needsRebuild = false;
 };

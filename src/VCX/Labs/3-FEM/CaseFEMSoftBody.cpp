@@ -104,11 +104,23 @@ void CaseFEMSoftBody::OnSetupPropsUI() {
         ImGui::SliderFloat("Damping", &_damping, 0.0f, 20.0f);
         ImGui::SliderFloat3("Gravity", glm::value_ptr(_gravity), -20.0f, 0.0f);
     }
+    if (ImGui::CollapsingHeader("Simulation", ImGuiTreeNodeFlags_DefaultOpen)) {
+        // 新增子步控制
+        ImGui::SliderInt("Substeps", &_numSubsteps, 1, 100);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Increase if simulation explodes.\nRecommended: 20-50 for stiff materials.");
+
+        if (ImGui::Button("Reset")) {
+            ResetSimulation();
+        }
+    }
 
     if (ImGui::CollapsingHeader("Mesh", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::SliderInt("Grid X", &_gridResX, 2, 8);
-        ImGui::SliderInt("Grid Y", &_gridResY, 3, 20);
-        ImGui::SliderInt("Grid Z", &_gridResZ, 2, 8);
+        ImGui::SliderInt("Grid X", &_gridResX, 3, 20);
+        ImGui::SliderInt("Grid Y", &_gridResY, 2, 10);
+        ImGui::SliderInt("Grid Z", &_gridResZ, 2, 10);
         if (ImGui::Button("Rebuild Mesh")) {
             _needsRebuild = true;
         }
@@ -116,6 +128,12 @@ void CaseFEMSoftBody::OnSetupPropsUI() {
         if (ImGui::Checkbox("Fix Top Face", &_fixTopFace)) {
             _needsRebuild = true;
         }
+    }
+
+    if (ImGui::CollapsingHeader("Interaction", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::SliderFloat("Lift Force", &_liftForce, 10.0f, 200.0f);
+        ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f),
+            ImGui::IsKeyDown(ImGuiKey_Space) ? "[SPACE] held - lifting!" : "Hold [SPACE] to lift");
     }
 
     if (ImGui::CollapsingHeader("Simulation", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -129,42 +147,53 @@ void CaseFEMSoftBody::OnSetupPropsUI() {
 void CaseFEMSoftBody::Advance(float dt) {
     if (dt <= 0.0f) return;
 
-    // Clamp dt to avoid explosion with explicit Euler
+    // 将帧时间钳制在合理范围（避免失焦等极端情况）
     dt = std::min(dt, 1.0f / 30.0f);
 
-    // 1. Compute elastic forces
-    std::vector<Eigen::Vector3f> forces;
-    _integrator.ComputeAllForces(_mesh, forces);
-
-    // 2. Add gravity, damping, and integrate
+    // 刚度越大（lambda/mu 越大）需要越多子步
+    const float subDt = dt / float(_numSubsteps);
     const Eigen::Vector3f grav3 = glm2eigen(_gravity);
+    const bool spaceHeld = ImGui::IsKeyDown(ImGuiKey_Space);
 
-    for (int i = 0; i < _mesh.NumVertices(); ++i) {
-        forces[i] += _mesh.masses[i] * grav3;
-        forces[i] -= _damping * _mesh.velocities[i];
+    for (int step = 0; step < _numSubsteps; ++step) {
+        // 1. 计算弹性力
+        std::vector<Eigen::Vector3f> forces;
+        _integrator.ComputeAllForces(_mesh, forces);
 
-        if (_mesh.fixed[i]) {
-            forces[i] = Eigen::Vector3f::Zero();
-        }
+        // 2. 叠加外力，更新速度和位置
+        for (int i = 0; i < _mesh.NumVertices(); ++i) {
+            if (_mesh.fixed[i]) {
+                _mesh.positions[i]  = _mesh.restPositions[i];
+                _mesh.velocities[i] = Eigen::Vector3f::Zero();
+                continue;
+            }
 
-        _mesh.velocities[i] += dt * forces[i] / _mesh.masses[i];
-        _mesh.positions[i]  += dt * _mesh.velocities[i];
+            // 重力 + 空格键抬升
+            forces[i] += _mesh.masses[i] * grav3;
+            if (spaceHeld) {
+                forces[i] += Eigen::Vector3f(0.0f, _liftForce * _mesh.masses[i], 0.0f);
+            }
 
-        if (_mesh.fixed[i]) {
-            _mesh.positions[i]  = _mesh.restPositions[i];
-            _mesh.velocities[i] = Eigen::Vector3f::Zero();
-        }
+            // 速度更新（显式欧拉）
+            _mesh.velocities[i] += subDt * forces[i] / _mesh.masses[i];
 
-        // Ground collision
-        if (_mesh.positions[i].y() < _floorY) {
-            _mesh.positions[i].y() = _floorY;
-            if (_mesh.velocities[i].y() < 0.0f) {
-                _mesh.velocities[i].y() = 0.0f;
+            // Bug 2 修复：用指数衰减施加阻尼，无条件稳定
+            const float dampFactor = std::exp(-_damping * subDt);
+            _mesh.velocities[i] *= dampFactor;
+
+            // 位置更新
+            _mesh.positions[i] += subDt * _mesh.velocities[i];
+
+            // 地板碰撞
+            if (_mesh.positions[i].y() < _floorY) {
+                _mesh.positions[i].y() = _floorY;
+                if (_mesh.velocities[i].y() < 0.0f) {
+                    _mesh.velocities[i].y() = 0.0f;
+                }
             }
         }
     }
 }
-
 void CaseFEMSoftBody::ApplyMouseForce() {
     std::vector<glm::vec3> candidates;
     candidates.reserve(_mesh.NumVertices());
