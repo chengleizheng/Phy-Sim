@@ -19,9 +19,12 @@ void TetMesh::BuildBeam(
     const int nvx = nx + 1;
     const int nvy = ny + 1;
     const int nvz = nz + 1;
+    //这里是因为点数总比边数多1
 
     const int numVerts = nvx * nvy * nvz;
+    //计算总共的节点数
     const int numTets  = nx * ny * nz * 6;
+    //四面体的总个数
 
     restPositions.resize(numVerts);
     positions.resize(numVerts);
@@ -42,6 +45,7 @@ void TetMesh::BuildBeam(
             }
         }
     }
+    //因为初始原因，restPositions和positions都一样，利用三层循环将二者初始化
 
     tets.resize(numTets);
     DmInv.resize(numTets);
