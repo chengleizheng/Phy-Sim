@@ -4,6 +4,8 @@
 #include <set>
 #include <cmath>
 
+
+
 namespace VCX::Labs::FEM {
 
 void TetMesh::BuildBeam(
@@ -54,8 +56,10 @@ void TetMesh::BuildBeam(
     auto V = [nvx, nvy](int i, int j, int k) -> int {
         return k * nvy * nvx + j * nvx + i;
     };
+    //相当于将一个三位数组一维化
 
     const float cellVol = dx * dy * dz / 6.0f;
+    //每个四面体的体积
     int tetIdx = 0;
 
     for (int k = 0; k < nz; ++k) {
@@ -83,7 +87,11 @@ void TetMesh::BuildBeam(
 
                 for (int t = 0; t < 6; ++t) {
                     const Eigen::Vector4i tv = cellTets[t];
+                    //将一个正方体内的四个顶点存入四个顶点数组
+                    //tv[0~5]分别对应四个顶点的四元数
                     tets[tetIdx] = tv;
+                    //tetIdx 记录四面体编号
+                    //tets[i] 记录第i个四面体对应的四个点标号
 
                     const Eigen::Vector3f & X0 = restPositions[tv[0]];
                     const Eigen::Vector3f & X1 = restPositions[tv[1]];
@@ -96,6 +104,7 @@ void TetMesh::BuildBeam(
                     Dm.col(2) = X3 - X0;
 
                     DmInv[tetIdx]     = Dm.inverse();
+                    //预处理数据，把四面体由一个点引发的三条边所对应的张量先求逆，以便下一步处理
                     restVolume[tetIdx] = cellVol;
                     ++tetIdx;
                 }

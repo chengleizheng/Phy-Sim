@@ -6,8 +6,8 @@
 namespace VCX::Labs::FEM {
 
 struct StVKMaterial {
-    float lambda = 1000.0f;
-    float mu     = 500.0f;
+    float lambda = 300.0f;
+    float mu     = 50.0f;
 };
 
 class FEMIntegrator {

@@ -86,6 +86,8 @@ void CaseFEMSoftBody::ResetSimulation() {
 }
 
 void CaseFEMSoftBody::OnSetupPropsUI() {
+    ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f),
+            ImGui::IsKeyDown(ImGuiKey_Space) ? "[SPACE] held - lifting!" : "Hold [SPACE] to lift");
     if (ImGui::CollapsingHeader("Appearance", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::ColorEdit3("Surface Color", glm::value_ptr(_surfaceColor));
         ImGui::Checkbox("Show Wireframe", &_showWireframe);
@@ -93,28 +95,13 @@ void CaseFEMSoftBody::OnSetupPropsUI() {
 
     if (ImGui::CollapsingHeader("Physics", ImGuiTreeNodeFlags_DefaultOpen)) {
         bool changed = false;
-        changed |= ImGui::SliderFloat("Lambda", &_lambda, 100.0f, 10000.0f);
-        changed |= ImGui::SliderFloat("Mu", &_mu, 100.0f, 10000.0f);
+        changed |= ImGui::SliderFloat("Lambda", &_lambda, 100.0f, 1000.0f);
+        changed |= ImGui::SliderFloat("Mu", &_mu, 10.0f, 200.0f);
         if (changed) {
             _integrator.material.lambda = _lambda;
             _integrator.material.mu     = _mu;
         }
-
-        ImGui::SliderFloat("Mass", &_totalMass, 0.1f, 10.0f);
-        ImGui::SliderFloat("Damping", &_damping, 0.0f, 20.0f);
         ImGui::SliderFloat3("Gravity", glm::value_ptr(_gravity), -20.0f, 0.0f);
-    }
-    if (ImGui::CollapsingHeader("Simulation", ImGuiTreeNodeFlags_DefaultOpen)) {
-        // 新增子步控制
-        ImGui::SliderInt("Substeps", &_numSubsteps, 1, 100);
-        ImGui::SameLine();
-        ImGui::TextDisabled("(?)");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Increase if simulation explodes.\nRecommended: 20-50 for stiff materials.");
-
-        if (ImGui::Button("Reset")) {
-            ResetSimulation();
-        }
     }
 
     if (ImGui::CollapsingHeader("Mesh", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -123,17 +110,17 @@ void CaseFEMSoftBody::OnSetupPropsUI() {
         ImGui::SliderInt("Grid Z", &_gridResZ, 2, 10);
         if (ImGui::Button("Rebuild Mesh")) {
             _needsRebuild = true;
+            //根据新改的尺寸rebuild
         }
-        ImGui::SameLine();
+        /*ImGui::SameLine();
         if (ImGui::Checkbox("Fix Top Face", &_fixTopFace)) {
             _needsRebuild = true;
         }
+        */
     }
 
     if (ImGui::CollapsingHeader("Interaction", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::SliderFloat("Lift Force", &_liftForce, 10.0f, 200.0f);
-        ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f),
-            ImGui::IsKeyDown(ImGuiKey_Space) ? "[SPACE] held - lifting!" : "Hold [SPACE] to lift");
     }
 
     if (ImGui::CollapsingHeader("Simulation", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -177,7 +164,7 @@ void CaseFEMSoftBody::Advance(float dt) {
             // 速度更新（显式欧拉）
             _mesh.velocities[i] += subDt * forces[i] / _mesh.masses[i];
 
-            // Bug 2 修复：用指数衰减施加阻尼，无条件稳定
+            // 用指数衰减施加阻尼，无条件稳定
             const float dampFactor = std::exp(-_damping * subDt);
             _mesh.velocities[i] *= dampFactor;
 

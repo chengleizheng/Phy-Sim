@@ -40,10 +40,10 @@ private:
     TetMesh        _mesh;
     FEMIntegrator  _integrator;
 
-    float _lambda    = 1000.0f;
-    float _mu        = 500.0f;
+    float _lambda    = 300.0f;
+    float _mu        = 50.0f;
     float _totalMass = 1.0f;
-    float _damping   = 2.0f;
+    float _damping   = 2.8f;
     glm::vec3 _gravity { 0.0f, -9.8f, 0.0f };
 
     glm::vec3 _surfaceColor { 0.2f, 0.6f, 0.8f };
@@ -60,7 +60,7 @@ private:
 
     float _floorY    = 0.0f;
     float _liftForce = 50.0f;
-    int _numSubsteps = 30;
+    int _numSubsteps = 100;
 
     bool _needsRebuild = false;
 };
