@@ -5,6 +5,12 @@
 
 namespace VCX::Labs::FEM {
 
+enum class MaterialModel {
+    StVK,
+    NeoHookean,
+    Corotated
+};
+
 struct StVKMaterial {
     float lambda = 300.0f;
     float mu     = 50.0f;
@@ -12,7 +18,8 @@ struct StVKMaterial {
 
 class FEMIntegrator {
 public:
-    StVKMaterial material;
+    StVKMaterial  material;
+    MaterialModel materialModel = MaterialModel::StVK;
 
     void ComputeElementForces(
         const Eigen::Vector3f & x0,

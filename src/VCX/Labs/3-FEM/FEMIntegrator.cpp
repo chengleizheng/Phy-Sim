@@ -18,16 +18,34 @@ void FEMIntegrator::ComputeElementForces(
     Ds.col(2) = x3 - x0;
     Eigen::Matrix3f F = Ds * DmInv;
 
-    // G = 1/2 * (F^T * F - I)
-    Eigen::Matrix3f G = 0.5f * (F.transpose() * F - Eigen::Matrix3f::Identity());
+    Eigen::Matrix3f P;
 
-    // S = 2*mu*G + lambda*trace(G)*I  (StVK second Piola-Kirchhoff stress)
-    const float trG = G.trace();
-    Eigen::Matrix3f S = 2.0f * material.mu * G
-                      + material.lambda * trG * Eigen::Matrix3f::Identity();
-
-    // P = F * S  (first Piola-Kirchhoff stress)
-    Eigen::Matrix3f P = F * S;
+    if (materialModel == MaterialModel::NeoHookean) {
+        // Neo-Hookean: P = mu*(F - F^{-T}) + lambda*ln(J)*F^{-T}
+        const float J = F.determinant();
+        Eigen::Matrix3f F_inv_T = F.inverse().transpose();
+        float logJ = J > 1e-8f ? std::log(J) : 0.0f;
+        P = material.mu * (F - F_inv_T) + material.lambda * logJ * F_inv_T;
+    } else if (materialModel == MaterialModel::Corotated) {
+        // Corotated: polar decompose F = R*S, then P = R * [2*mu*(S-I) + lambda*tr(S-I)*I]
+        Eigen::JacobiSVD<Eigen::Matrix3f> svd(F, Eigen::ComputeFullU | Eigen::ComputeFullV);
+        Eigen::Matrix3f R = svd.matrixU() * svd.matrixV().transpose();
+        if (R.determinant() < 0) {
+            Eigen::Matrix3f U = svd.matrixU();
+            U.col(2) *= -1.0f;
+            R = U * svd.matrixV().transpose();
+        }
+        Eigen::Matrix3f S = R.transpose() * F;
+        Eigen::Matrix3f eps = S - Eigen::Matrix3f::Identity();
+        P = R * (2.0f * material.mu * eps + material.lambda * eps.trace() * Eigen::Matrix3f::Identity());
+    } else {
+        // StVK: G = 1/2*(F^T*F - I), S = 2*mu*G + lambda*tr(G)*I, P = F*S
+        Eigen::Matrix3f G = 0.5f * (F.transpose() * F - Eigen::Matrix3f::Identity());
+        const float trG = G.trace();
+        Eigen::Matrix3f S = 2.0f * material.mu * G
+                          + material.lambda * trG * Eigen::Matrix3f::Identity();
+        P = F * S;
+    }
 
     // [f1, f2, f3] = -restVol * P * Dm^{-T}
     Eigen::Matrix3f H = -restVol * P * DmInv.transpose();

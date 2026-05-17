@@ -94,6 +94,13 @@ void CaseFEMSoftBody::OnSetupPropsUI() {
     }
 
     if (ImGui::CollapsingHeader("Physics", ImGuiTreeNodeFlags_DefaultOpen)) {
+        // Material model selector
+        {
+            int currentModel = static_cast<int>(_integrator.materialModel);
+            if (ImGui::Combo("Model", &currentModel, "StVK\0Neo-Hookean\0Corotated\0")) {
+                _integrator.materialModel = static_cast<MaterialModel>(currentModel);
+            }
+        }
         bool changed = false;
         changed |= ImGui::SliderFloat("Lambda", &_lambda, 100.0f, 1000.0f);
         changed |= ImGui::SliderFloat("Mu", &_mu, 10.0f, 200.0f);
