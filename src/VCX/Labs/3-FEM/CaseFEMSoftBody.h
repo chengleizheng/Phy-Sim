@@ -28,10 +28,11 @@ private:
     void RebuildMesh();
     void ResetSimulation();
 
-    Engine::GL::UniqueProgram           _program;
+    Engine::GL::UniqueProgram           _program;     // flat (wireframe)
+    Engine::GL::UniqueProgram           _litProgram;  // lit (surface)
     Engine::GL::UniqueRenderFrame       _frame;
-    Engine::GL::UniqueIndexedRenderItem _surfaceItem;
-    Engine::GL::UniqueIndexedRenderItem _wireItem;
+    Engine::GL::UniqueIndexedRenderItem _surfaceItem; // lit surface (position + normal)
+    Engine::GL::UniqueIndexedRenderItem _wireItem;    // flat wireframe
 
     Engine::Camera             _camera { .Eye = glm::vec3(5, 3, 5), .Target = glm::vec3(0, 0.5, 0) };
     Common::OrbitCameraManager _cameraManager;
@@ -48,6 +49,14 @@ private:
 
     glm::vec3 _surfaceColor { 0.2f, 0.6f, 0.8f };
     bool      _showWireframe = true;
+
+    // lighting
+    bool     _useLighting = true;
+    float    _lightIntensity = 1.0f;
+    float    _ambientScale = 0.30f;
+    float    _shininess = 150.0f;
+    bool     _flatShading = true;
+    glm::vec3 _lightDir { 7.0f, 9.0f, 7.0f };
 
     bool _fixTopFace = false;
 

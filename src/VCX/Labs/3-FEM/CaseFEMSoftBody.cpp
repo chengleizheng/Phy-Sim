@@ -18,8 +18,13 @@ CaseFEMSoftBody::CaseFEMSoftBody() :
     _program(
         Engine::GL::UniqueProgram({ Engine::GL::SharedShader("assets/shaders/flat.vert"),
                                     Engine::GL::SharedShader("assets/shaders/flat.frag") })),
+    _litProgram(
+        Engine::GL::UniqueProgram({ Engine::GL::SharedShader("assets/shaders/lit_mesh.vert"),
+                                    Engine::GL::SharedShader("assets/shaders/lit_mesh.frag") })),
     _surfaceItem(
-        Engine::GL::VertexLayout().Add<glm::vec3>("position", Engine::GL::DrawFrequency::Stream, 0),
+        Engine::GL::VertexLayout()
+            .Add<glm::vec3>("position", Engine::GL::DrawFrequency::Stream, 0)
+            .Add<glm::vec3>("normal",   Engine::GL::DrawFrequency::Stream, 1),
         Engine::GL::PrimitiveType::Triangles),
     _wireItem(
         Engine::GL::VertexLayout().Add<glm::vec3>("position", Engine::GL::DrawFrequency::Stream, 0),
@@ -89,7 +94,14 @@ void CaseFEMSoftBody::OnSetupPropsUI() {
     ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f),
             ImGui::IsKeyDown(ImGuiKey_Space) ? "[SPACE] held - lifting!" : "Hold [SPACE] to lift");
     if (ImGui::CollapsingHeader("Appearance", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Checkbox("Lighting", &_useLighting);
         ImGui::ColorEdit3("Surface Color", glm::value_ptr(_surfaceColor));
+        if (_useLighting) {
+            ImGui::SliderFloat("Light Intensity", &_lightIntensity, 0.1f, 3.0f);
+            ImGui::SliderFloat("Ambient", &_ambientScale, 0.0f, 0.5f);
+            ImGui::SliderFloat("Shininess", &_shininess, 1.0f, 256.0f);
+            ImGui::Checkbox("Flat Shading", &_flatShading);
+        }
         ImGui::Checkbox("Show Wireframe", &_showWireframe);
     }
 
@@ -214,31 +226,69 @@ Common::CaseRenderResult CaseFEMSoftBody::OnRender(std::pair<std::uint32_t, std:
     _frame.Resize(desiredSize);
 
     _cameraManager.Update(_camera);
-    _program.GetUniforms().SetByName("u_Projection",
-        _camera.GetProjectionMatrix(float(desiredSize.first) / float(desiredSize.second)));
-    _program.GetUniforms().SetByName("u_View", _camera.GetViewMatrix());
+
+    const auto projMat = _camera.GetProjectionMatrix(float(desiredSize.first) / float(desiredSize.second));
+    const auto viewMat = _camera.GetViewMatrix();
 
     gl_using(_frame);
     glEnable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
 
-    // Upload current deformed positions
+    // Upload deformed positions
     std::vector<glm::vec3> verts(_mesh.NumVertices());
     for (int i = 0; i < _mesh.NumVertices(); ++i) {
         verts[i] = eigen2glm(_mesh.positions[i]);
     }
     auto spanVerts = Engine::make_span_bytes<glm::vec3>(verts);
 
-    // Draw filled surface triangles
-    _program.GetUniforms().SetByName("u_Color", _surfaceColor);
-    _surfaceItem.UpdateVertexBuffer("position", spanVerts);
-    _surfaceItem.Draw({ _program.Use() });
+    // Compute per-vertex normals from surface faces
+    std::vector<glm::vec3> normals(_mesh.NumVertices(), glm::vec3(0.0f));
+    for (const auto & f : _mesh.surfaceFaces) {
+        glm::vec3 p0 = verts[f[0]];
+        glm::vec3 p1 = verts[f[1]];
+        glm::vec3 p2 = verts[f[2]];
+        glm::vec3 fn = glm::cross(p1 - p0, p2 - p0);
+        normals[f[0]] += fn;
+        normals[f[1]] += fn;
+        normals[f[2]] += fn;
+    }
+    for (auto & n : normals) {
+        float len = glm::length(n);
+        if (len > 1e-10f) n /= len;
+    }
+    auto spanNormals = Engine::make_span_bytes<glm::vec3>(normals);
 
-    // Draw wireframe
+    // Draw surface
+    if (_useLighting) {
+        auto & prog = _litProgram;
+        prog.GetUniforms().SetByName("u_Projection", projMat);
+        prog.GetUniforms().SetByName("u_View", viewMat);
+        prog.GetUniforms().SetByName("u_ViewPosition", _camera.Eye);
+        prog.GetUniforms().SetByName("u_Color", _surfaceColor);
+        prog.GetUniforms().SetByName("u_LightDir", glm::normalize(_lightDir));
+        prog.GetUniforms().SetByName("u_LightColor", _lightIntensity * glm::vec3(1.0f));
+        prog.GetUniforms().SetByName("u_AmbientColor", _ambientScale * _lightIntensity * glm::vec3(1.0f));
+        prog.GetUniforms().SetByName("u_Shininess", _shininess);
+        prog.GetUniforms().SetByName("u_FlatShading", int(_flatShading));
+
+        _surfaceItem.UpdateVertexBuffer("position", spanVerts);
+        _surfaceItem.UpdateVertexBuffer("normal", spanNormals);
+        _surfaceItem.Draw({ prog.Use() });
+    } else {
+        _program.GetUniforms().SetByName("u_Projection", projMat);
+        _program.GetUniforms().SetByName("u_View", viewMat);
+        _program.GetUniforms().SetByName("u_Color", _surfaceColor);
+        _surfaceItem.UpdateVertexBuffer("position", spanVerts);
+        _surfaceItem.Draw({ _program.Use() });
+    }
+
+    // Draw wireframe (flat shader)
     if (_showWireframe) {
         glEnable(GL_LINE_SMOOTH);
         glLineWidth(0.5f);
 
+        _program.GetUniforms().SetByName("u_Projection", projMat);
+        _program.GetUniforms().SetByName("u_View", viewMat);
         _program.GetUniforms().SetByName("u_Color", glm::vec3(1.0f, 1.0f, 1.0f));
         _wireItem.UpdateVertexBuffer("position", spanVerts);
         _wireItem.Draw({ _program.Use() });

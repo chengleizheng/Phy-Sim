@@ -135,23 +135,47 @@ void TetMesh::ExtractSurfaceFaces() {
         addFace(v1, v2, v3);
     }
 
+    // Second pass: collect surface faces with consistent outward-facing winding.
+    // For a positively-oriented tet, cross(b-a, c-a) points INWARD (toward the
+    // 4th vertex). For a boundary face we flip it so the normal points outward.
     for (const auto & tv : tets) {
-        int v0 = tv[0], v1 = tv[1], v2 = tv[2], v3 = tv[3];
+        int v[4] = { tv[0], tv[1], tv[2], tv[3] };
 
-        auto checkFace = [&](int a, int b, int c) {
+        // Four faces of the tet, each paired with its opposite (4th) vertex
+        const int faceVerts[4][3] = {
+            { v[0], v[1], v[2] }, // opposite v[3]
+            { v[0], v[1], v[3] }, // opposite v[2]
+            { v[0], v[2], v[3] }, // opposite v[1]
+            { v[1], v[2], v[3] }, // opposite v[0]
+        };
+        const int opposite[4] = { v[3], v[2], v[1], v[0] };
+
+        for (int fi = 0; fi < 4; ++fi) {
+            int a = faceVerts[fi][0], b = faceVerts[fi][1], c = faceVerts[fi][2];
+
+            // Sort for map lookup
             int arr[3] = { a, b, c };
             if (arr[0] > arr[1]) std::swap(arr[0], arr[1]);
             if (arr[1] > arr[2]) std::swap(arr[1], arr[2]);
             if (arr[0] > arr[1]) std::swap(arr[0], arr[1]);
-            if (faceCount[{ arr[0], arr[1], arr[2] }] == 1) {
-                surfaceFaces.push_back({ a, b, c });
-            }
-        };
 
-        checkFace(v0, v1, v2);
-        checkFace(v0, v1, v3);
-        checkFace(v0, v2, v3);
-        checkFace(v1, v2, v3);
+            if (faceCount[{ arr[0], arr[1], arr[2] }] == 1) {
+                // Face normal from the tet's winding
+                const Eigen::Vector3f & pa = restPositions[a];
+                const Eigen::Vector3f & pb = restPositions[b];
+                const Eigen::Vector3f & pc = restPositions[c];
+                Eigen::Vector3f fn = (pb - pa).cross(pc - pa);
+                // Vector from face centroid toward the opposite vertex
+                Eigen::Vector3f toInner = restPositions[opposite[fi]]
+                                        - (pa + pb + pc) / 3.0f;
+                // If dot > 0, the normal points inward → flip winding
+                if (fn.dot(toInner) > 0) {
+                    surfaceFaces.push_back({ a, c, b }); // swapped → outward
+                } else {
+                    surfaceFaces.push_back({ a, b, c }); // already outward
+                }
+            }
+        }
     }
 }
 
