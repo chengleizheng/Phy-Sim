@@ -143,6 +143,23 @@ void CaseFEMSoftBody::OnSetupPropsUI() {
     }
 
     if (ImGui::CollapsingHeader("Simulation", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Checkbox("Implicit", &_useImplicit);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Backward Euler with Newton + CG.\nStable with fewer substeps but slower per step.");
+
+        if (_useImplicit) {
+            ImGui::SliderInt("Newton Iters", &_maxNewtonIters, 1, 10);
+            ImGui::SliderInt("Max CG Iters", &_maxCGIters, 50, 500);
+            ImGui::SliderFloat("CG Tolerance", &_cgTolerance, 1e-6f, 1e-2f, "%.6f");
+            ImGui::TextColored(_cgConverged
+                ? ImVec4(0.3f, 1.0f, 0.3f, 1.0f)
+                : ImVec4(1.0f, 0.3f, 0.3f, 1.0f),
+                _cgConverged ? "CG: converged" : "CG: NOT converged");
+        } else {
+            ImGui::SliderInt("Substeps", &_numSubsteps, 1, 200);
+        }
         if (ImGui::Button("Reset")) {
             ResetSimulation();
         }
@@ -153,50 +170,230 @@ void CaseFEMSoftBody::OnSetupPropsUI() {
 void CaseFEMSoftBody::Advance(float dt) {
     if (dt <= 0.0f) return;
 
-    // 将帧时间钳制在合理范围（避免失焦等极端情况）
     dt = std::min(dt, 1.0f / 30.0f);
 
-    // 刚度越大（lambda/mu 越大）需要越多子步
-    const float subDt = dt / float(_numSubsteps);
+    if (_useImplicit) {
+        // Implicit handles its own substeps via Newton-CG
+        AdvanceImplicit(dt);
+    } else {
+        const float subDt = dt / float(_numSubsteps);
+        const Eigen::Vector3f grav3 = glm2eigen(_gravity);
+        const bool spaceHeld = ImGui::IsKeyDown(ImGuiKey_Space);
+        for (int step = 0; step < _numSubsteps; ++step) {
+            AdvanceExplicit(subDt, grav3, spaceHeld);
+        }
+    }
+}
+
+void CaseFEMSoftBody::AdvanceExplicit(
+    float subDt, const Eigen::Vector3f & grav3, bool spaceHeld)
+{
+    std::vector<Eigen::Vector3f> forces;
+    _integrator.ComputeAllForces(_mesh, forces);
+
+    for (int i = 0; i < _mesh.NumVertices(); ++i) {
+        if (_mesh.fixed[i]) {
+            _mesh.positions[i]  = _mesh.restPositions[i];
+            _mesh.velocities[i] = Eigen::Vector3f::Zero();
+            continue;
+        }
+
+        forces[i] += _mesh.masses[i] * grav3;
+        if (spaceHeld) {
+            forces[i] += Eigen::Vector3f(0.0f, _liftForce * _mesh.masses[i], 0.0f);
+        }
+
+        _mesh.velocities[i] += subDt * forces[i] / _mesh.masses[i];
+
+        const float dampFactor = std::exp(-_damping * subDt);
+        _mesh.velocities[i] *= dampFactor;
+
+        _mesh.positions[i] += subDt * _mesh.velocities[i];
+
+        if (_mesh.positions[i].y() < _floorY) {
+            _mesh.positions[i].y() = _floorY;
+            if (_mesh.velocities[i].y() < 0.0f) {
+                _mesh.velocities[i].y() = 0.0f;
+            }
+        }
+    }
+}
+
+void CaseFEMSoftBody::AdvanceImplicit(float dt) {
+    const int nv    = _mesh.NumVertices();
+    const int ndof  = nv * 3;
+    const float dt2 = dt * dt;
     const Eigen::Vector3f grav3 = glm2eigen(_gravity);
     const bool spaceHeld = ImGui::IsKeyDown(ImGuiKey_Space);
 
-    for (int step = 0; step < _numSubsteps; ++step) {
-        // 1. 计算弹性力
-        std::vector<Eigen::Vector3f> forces;
-        _integrator.ComputeAllForces(_mesh, forces);
+    // Save state before implicit step
+    std::vector<Eigen::Vector3f> posOld = _mesh.positions;
+    std::vector<Eigen::Vector3f> velOld = _mesh.velocities;
 
-        // 2. 叠加外力，更新速度和位置
-        for (int i = 0; i < _mesh.NumVertices(); ++i) {
-            if (_mesh.fixed[i]) {
-                _mesh.positions[i]  = _mesh.restPositions[i];
-                _mesh.velocities[i] = Eigen::Vector3f::Zero();
-                continue;
+    // Prediction: x = x_n + dt * v_n  (explicit predictor)
+    for (int i = 0; i < nv; ++i) {
+        if (!_mesh.fixed[i]) {
+            _mesh.positions[i] += dt * _mesh.velocities[i];
+        }
+    }
+
+    // Helper: assemble triplets for A = M + dt²*K, skipping fixed DOFs
+    auto buildTriplets = [&](std::vector<Eigen::Triplet<float>> & trips) {
+        trips.clear();
+        trips.reserve(nv * 3 + _mesh.NumTets() * 144);
+
+        // Mass diagonal
+        for (int i = 0; i < nv; ++i) {
+            if (_mesh.fixed[i]) continue;
+            float m = _mesh.masses[i];
+            for (int d = 0; d < 3; ++d) {
+                int dof = 3 * i + d;
+                trips.push_back({dof, dof, m});
             }
+        }
 
-            // 重力 + 空格键抬升
-            forces[i] += _mesh.masses[i] * grav3;
-            if (spaceHeld) {
-                forces[i] += Eigen::Vector3f(0.0f, _liftForce * _mesh.masses[i], 0.0f);
-            }
+        // Tangent stiffness: Δt² * K_e per tet
+        for (int e = 0; e < _mesh.NumTets(); ++e) {
+            const Eigen::Vector4i & tv = _mesh.tets[e];
 
-            // 速度更新（显式欧拉）
-            _mesh.velocities[i] += subDt * forces[i] / _mesh.masses[i];
+            Eigen::Matrix<float, 12, 12> Ke;
+            _integrator.ComputeElementTangentStiffness(
+                _mesh.positions[tv[0]], _mesh.positions[tv[1]],
+                _mesh.positions[tv[2]], _mesh.positions[tv[3]],
+                _mesh.DmInv[e], _mesh.restVolume[e], Ke);
 
-            // 用指数衰减施加阻尼，无条件稳定
-            const float dampFactor = std::exp(-_damping * subDt);
-            _mesh.velocities[i] *= dampFactor;
-
-            // 位置更新
-            _mesh.positions[i] += subDt * _mesh.velocities[i];
-
-            // 地板碰撞
-            if (_mesh.positions[i].y() < _floorY) {
-                _mesh.positions[i].y() = _floorY;
-                if (_mesh.velocities[i].y() < 0.0f) {
-                    _mesh.velocities[i].y() = 0.0f;
+            for (int i = 0; i < 4; ++i) {
+                int gi = tv[i];
+                if (_mesh.fixed[gi]) continue;
+                for (int j = 0; j < 4; ++j) {
+                    int gj = tv[j];
+                    if (_mesh.fixed[gj]) continue;
+                    for (int a = 0; a < 3; ++a) {
+                        for (int b = 0; b < 3; ++b) {
+                            float val = dt2 * Ke(3 * i + a, 3 * j + b);
+                            if (std::abs(val) > 1e-12f) {
+                                trips.push_back({3 * gi + a, 3 * gj + b, val});
+                            }
+                        }
+                    }
                 }
             }
+        }
+    };
+
+    // Newton loop
+    std::vector<Eigen::Triplet<float>> triplets;
+    Eigen::SparseMatrix<float> A;
+    Eigen::ConjugateGradient<Eigen::SparseMatrix<float>,
+                             Eigen::Lower | Eigen::Upper,
+                             Eigen::DiagonalPreconditioner<float>> cg;
+    cg.setMaxIterations(_maxCGIters);
+    cg.setTolerance(_cgTolerance);
+
+    bool cgFailed = false;
+
+    for (int newton = 0; newton < _maxNewtonIters && !cgFailed; ++newton) {
+        // Compute elastic forces at current positions
+        std::vector<Eigen::Vector3f> f_elastic;
+        _integrator.ComputeAllForces(_mesh, f_elastic);
+
+        // Assemble system matrix
+        buildTriplets(triplets);
+        // Identity for fixed DOFs (so A is non-singular)
+        for (int i = 0; i < nv; ++i) {
+            if (!_mesh.fixed[i]) continue;
+            for (int d = 0; d < 3; ++d)
+                triplets.push_back({3 * i + d, 3 * i + d, 1.0f});
+        }
+        A.resize(ndof, ndof);
+        A.setFromTriplets(triplets.begin(), triplets.end());
+
+        // Build RHS: r = dt² * f_total - M * (x_cur - x_n - dt * v_n)
+        Eigen::VectorXf rhs(ndof);
+        rhs.setZero();
+        for (int i = 0; i < nv; ++i) {
+            if (_mesh.fixed[i]) continue;
+            Eigen::Vector3f f_total = f_elastic[i]
+                                    + _mesh.masses[i] * grav3;
+            if (spaceHeld) {
+                f_total += Eigen::Vector3f(0.0f, _liftForce * _mesh.masses[i], 0.0f);
+            }
+            // Inertial residual: M * (x_cur - x_n - dt * v_n)
+            Eigen::Vector3f r_inertial = _mesh.masses[i]
+                * (_mesh.positions[i] - posOld[i] - dt * velOld[i]);
+            for (int d = 0; d < 3; ++d) {
+                rhs[3 * i + d] = dt2 * f_total[d] - r_inertial[d];
+            }
+        }
+
+        // Solve A * Δx = rhs with CG + diagonal preconditioner
+        cg.compute(A);
+        if (cg.info() != Eigen::Success) {
+            cgFailed = true;
+            break;
+        }
+        Eigen::VectorXf dx = cg.solve(rhs);
+        if (cg.info() == Eigen::Success) {
+            _cgConverged = true;
+        } else if (cg.info() == Eigen::NoConvergence) {
+            _cgConverged = false;
+        } else {
+            cgFailed = true;
+            break;
+        }
+
+        // Clamp per-vertex displacement to prevent explosions
+        const float maxDx = 0.5f; // max 0.5m per Newton iteration
+        for (int i = 0; i < nv; ++i) {
+            if (_mesh.fixed[i]) continue;
+            Eigen::Vector3f dxi(dx[3 * i], dx[3 * i + 1], dx[3 * i + 2]);
+            float len = dxi.norm();
+            if (len > maxDx) dxi *= maxDx / len;
+            for (int d = 0; d < 3; ++d) dx[3 * i + d] = dxi[d];
+        }
+
+        // Update positions
+        for (int i = 0; i < nv; ++i) {
+            if (_mesh.fixed[i]) continue;
+            for (int d = 0; d < 3; ++d) {
+                _mesh.positions[i][d] += dx[3 * i + d];
+            }
+        }
+    }
+
+    // If CG failed, fall back to explicit
+    if (cgFailed) {
+        _mesh.positions = posOld;
+        _mesh.velocities = velOld;
+        AdvanceExplicit(dt, grav3, spaceHeld);
+        return;
+    }
+
+    // Compute velocity from total displacement
+    for (int i = 0; i < nv; ++i) {
+        if (_mesh.fixed[i]) {
+            _mesh.positions[i]  = _mesh.restPositions[i];
+            _mesh.velocities[i] = Eigen::Vector3f::Zero();
+            continue;
+        }
+        _mesh.velocities[i] = (_mesh.positions[i] - posOld[i]) / dt;
+
+        // Apply damping to velocity (exponential)
+        const float dampFactor = std::exp(-_damping * dt);
+        _mesh.velocities[i] *= dampFactor;
+
+        // Floor collision
+        if (_mesh.positions[i].y() < _floorY) {
+            _mesh.positions[i].y() = _floorY;
+            if (_mesh.velocities[i].y() < 0.0f) {
+                _mesh.velocities[i].y() = 0.0f;
+            }
+        }
+
+        // NaN guard
+        if (!_mesh.positions[i].allFinite() || !_mesh.velocities[i].allFinite()) {
+            _mesh.positions[i]  = _mesh.restPositions[i];
+            _mesh.velocities[i] = Eigen::Vector3f::Zero();
         }
     }
 }

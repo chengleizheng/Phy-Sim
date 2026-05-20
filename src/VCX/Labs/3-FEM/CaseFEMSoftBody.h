@@ -7,6 +7,7 @@
 #include "Labs/Common/ImageRGB.h"
 #include "Labs/Common/OrbitCameraManager.h"
 #include "Labs/Common/ForceManager.h"
+#include <Eigen/Sparse>
 #include "TetMesh.h"
 #include "FEMIntegrator.h"
 
@@ -24,6 +25,8 @@ public:
 
 private:
     void Advance(float dt);
+    void AdvanceExplicit(float subDt, const Eigen::Vector3f & grav3, bool spaceHeld);
+    void AdvanceImplicit(float dt);
     void ApplyMouseForce();
     void RebuildMesh();
     void ResetSimulation();
@@ -70,6 +73,13 @@ private:
     float _floorY    = 0.0f;
     float _liftForce = 50.0f;
     int _numSubsteps = 100;
+
+    // Implicit integration
+    bool  _useImplicit     = false;
+    int   _maxNewtonIters  = 5;
+    int   _maxCGIters      = 200;
+    float _cgTolerance     = 1e-4f;
+    bool  _cgConverged     = true;
 
     bool _needsRebuild = false;
 };
