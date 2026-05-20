@@ -1,0 +1,108 @@
+commit 4d1328a12cbba870509a2801327bf755e37eb681
+Author: chengleizheng <1299020141@qq.com>
+Date:   Wed May 20 12:09:47 2026 +0800
+
+    add B4
+
+ src/VCX/Labs/3-FEM/CaseFEMSoftBody.cpp | 257 +++++++++++++++++++++++++++++----
+ src/VCX/Labs/3-FEM/CaseFEMSoftBody.h   |  10 ++
+ src/VCX/Labs/3-FEM/FEMIntegrator.cpp   |  75 ++++++++++
+ src/VCX/Labs/3-FEM/FEMIntegrator.h     |  11 ++
+ 4 files changed, 323 insertions(+), 30 deletions(-)
+
+commit a6234ffff8bb16c7d78627f1cd465ad8ffa6957e
+Author: chengleizheng <1299020141@qq.com>
+Date:   Wed May 20 10:16:42 2026 +0800
+
+    modify parameters
+
+ src/VCX/Labs/3-FEM/CaseCloth.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+commit d5f0053a807ed8742826a8b8c30cca0c6efe3147
+Author: chengleizheng <1299020141@qq.com>
+Date:   Wed May 20 09:59:08 2026 +0800
+
+    add Cloth Stimulation
+
+ src/VCX/Labs/3-FEM/App.h                  |   4 +-
+ src/VCX/Labs/3-FEM/CaseCloth.cpp          | 324 ++++++++++++++++++++++++++++++
+ src/VCX/Labs/3-FEM/CaseCloth.h            |  81 ++++++++
+ src/VCX/Labs/3-FEM/ClothFEMIntegrator.cpp | 132 ++++++++++++
+ src/VCX/Labs/3-FEM/ClothFEMIntegrator.h   |  43 ++++
+ src/VCX/Labs/3-FEM/ClothMesh.cpp          | 109 ++++++++++
+ src/VCX/Labs/3-FEM/ClothMesh.h            |  36 ++++
+ 7 files changed, 728 insertions(+), 1 deletion(-)
+
+commit fa97d2631edab8a168aa11767c83a434806afb16
+Author: chengleizheng <1299020141@qq.com>
+Date:   Sun May 17 20:20:56 2026 +0800
+
+    add the lighting founction
+
+ assets/shaders/lit_mesh.frag           | 30 +++++++++++++++
+ assets/shaders/lit_mesh.vert           | 14 +++++++
+ src/VCX/Labs/3-FEM/CaseFEMSoftBody.cpp | 70 +++++++++++++++++++++++++++++-----
+ src/VCX/Labs/3-FEM/CaseFEMSoftBody.h   | 15 ++++++--
+ src/VCX/Labs/3-FEM/TetMesh.cpp         | 42 +++++++++++++++-----
+ 5 files changed, 149 insertions(+), 22 deletions(-)
+
+commit a4ab662460bfed827ad1c6dd86ff1c3bfa67d993
+Author: chengleizheng <1299020141@qq.com>
+Date:   Sun May 17 19:40:52 2026 +0800
+
+    finished B1
+
+ src/VCX/Labs/3-FEM/CaseFEMSoftBody.cpp |  7 +++++++
+ src/VCX/Labs/3-FEM/FEMIntegrator.cpp   | 36 +++++++++++++++++++++++++---------
+ src/VCX/Labs/3-FEM/FEMIntegrator.h     |  9 ++++++++-
+ 3 files changed, 42 insertions(+), 10 deletions(-)
+
+commit 7326437ee3afd241e6fdaf9c36f56d45bf00b6f6
+Author: chengleizheng <1299020141@qq.com>
+Date:   Sat May 16 23:47:38 2026 +0800
+
+    Modify some parameters, optimize user interaction, fix bugs to enhance the overall effect
+
+ src/VCX/Labs/3-FEM/CaseFEMSoftBody.cpp | 29 ++++++++---------------------
+ src/VCX/Labs/3-FEM/CaseFEMSoftBody.h   |  8 ++++----
+ src/VCX/Labs/3-FEM/FEMIntegrator.h     |  4 ++--
+ src/VCX/Labs/3-FEM/TetMesh.cpp         |  9 +++++++++
+ 4 files changed, 23 insertions(+), 27 deletions(-)
+
+commit daaef874518b52c4ede9926de15906d4ad591559
+Author: chengleizheng <1299020141@qq.com>
+Date:   Fri May 15 22:16:40 2026 +0800
+
+    add comments
+
+ src/VCX/Labs/3-FEM/TetMesh.cpp |  4 ++++
+ src/VCX/Labs/3-FEM/TetMesh.h   | 16 ++++++++--------
+ 2 files changed, 12 insertions(+), 8 deletions(-)
+
+commit a10b6a2bea49fe5a761e1c5fff43b8dcc3e33927
+Author: chengleizheng <1299020141@qq.com>
+Date:   Thu May 14 10:46:57 2026 +0800
+
+    small changes
+
+ src/VCX/Labs/3-FEM/CaseFEMSoftBody.cpp | 83 +++++++++++++++++++++++-----------
+ src/VCX/Labs/3-FEM/CaseFEMSoftBody.h   | 16 ++++---
+ 2 files changed, 65 insertions(+), 34 deletions(-)
+
+commit 623711e904bca0e3f1954cbaabc049652231a2d2
+Author: chengleizheng <1299020141@qq.com>
+Date:   Wed May 13 13:13:39 2026 +0800
+
+    lab3 version 0.2
+
+ src/VCX/Labs/3-FEM/App.cpp             |  13 ++
+ src/VCX/Labs/3-FEM/App.h               |  25 ++++
+ src/VCX/Labs/3-FEM/CaseFEMSoftBody.cpp | 242 +++++++++++++++++++++++++++++++++
+ src/VCX/Labs/3-FEM/CaseFEMSoftBody.h   |  66 +++++++++
+ src/VCX/Labs/3-FEM/FEMIntegrator.cpp   |  68 +++++++++
+ src/VCX/Labs/3-FEM/FEMIntegrator.h     |  31 +++++
+ src/VCX/Labs/3-FEM/TetMesh.cpp         | 153 +++++++++++++++++++++
+ src/VCX/Labs/3-FEM/TetMesh.h           |  35 +++++
+ src/VCX/Labs/3-FEM/main.cpp            |  12 +-
+ 9 files changed, 643 insertions(+), 2 deletions(-)
