@@ -96,8 +96,11 @@ void CaseCloth::ResetSimulation() {
 }
 
 void CaseCloth::OnSetupPropsUI() {
+    const ImGuiIO & io = ImGui::GetIO();
+    const bool altHeld = io.KeyAlt || ImGui::IsKeyDown(ImGuiKey_LeftAlt) || ImGui::IsKeyDown(ImGuiKey_RightAlt);
+    const bool altSpaceHeld = altHeld && ImGui::IsKeyDown(ImGuiKey_Space);
     ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f),
-        ImGui::IsKeyDown(ImGuiKey_Space) ? "[SPACE] held - blowing wind!" : "Hold [SPACE] to blow wind");
+        altSpaceHeld ? "[ALT+SPACE] held - blowing wind!" : "Hold [ALT+SPACE] to blow wind");
 
     if (ImGui::CollapsingHeader("Appearance", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::Checkbox("Lighting", &_useLighting);
@@ -158,7 +161,9 @@ void CaseCloth::Advance(float dt) {
     dt = std::min(dt, 1.0f / 30.0f);
     const float subDt = dt / float(_numSubsteps);
     const Eigen::Vector3f grav3 = glm2eigen(_gravity);
-    const bool spaceHeld = ImGui::IsKeyDown(ImGuiKey_Space);
+    const ImGuiIO & io = ImGui::GetIO();
+    const bool altHeld = io.KeyAlt || ImGui::IsKeyDown(ImGuiKey_LeftAlt) || ImGui::IsKeyDown(ImGuiKey_RightAlt);
+    const bool spaceHeld = altHeld && ImGui::IsKeyDown(ImGuiKey_Space);
 
     for (int step = 0; step < _numSubsteps; ++step) {
         std::vector<Eigen::Vector3f> forces;

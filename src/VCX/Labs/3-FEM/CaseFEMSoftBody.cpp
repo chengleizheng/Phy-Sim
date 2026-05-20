@@ -91,8 +91,11 @@ void CaseFEMSoftBody::ResetSimulation() {
 }
 
 void CaseFEMSoftBody::OnSetupPropsUI() {
+    const ImGuiIO & io = ImGui::GetIO();
+    const bool altHeld = io.KeyAlt || ImGui::IsKeyDown(ImGuiKey_LeftAlt) || ImGui::IsKeyDown(ImGuiKey_RightAlt);
+    const bool altSpaceHeld = altHeld && ImGui::IsKeyDown(ImGuiKey_Space);
     ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f),
-            ImGui::IsKeyDown(ImGuiKey_Space) ? "[SPACE] held - lifting!" : "Hold [SPACE] to lift");
+            altSpaceHeld ? "[ALT+SPACE] held - lifting!" : "Hold [ALT+SPACE] to lift");
     if (ImGui::CollapsingHeader("Appearance", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::Checkbox("Lighting", &_useLighting);
         ImGui::ColorEdit3("Surface Color", glm::value_ptr(_surfaceColor));
@@ -178,7 +181,9 @@ void CaseFEMSoftBody::Advance(float dt) {
     } else {
         const float subDt = dt / float(_numSubsteps);
         const Eigen::Vector3f grav3 = glm2eigen(_gravity);
-        const bool spaceHeld = ImGui::IsKeyDown(ImGuiKey_Space);
+        const ImGuiIO & io = ImGui::GetIO();
+        const bool altHeld = io.KeyAlt || ImGui::IsKeyDown(ImGuiKey_LeftAlt) || ImGui::IsKeyDown(ImGuiKey_RightAlt);
+        const bool spaceHeld = altHeld && ImGui::IsKeyDown(ImGuiKey_Space);
         for (int step = 0; step < _numSubsteps; ++step) {
             AdvanceExplicit(subDt, grav3, spaceHeld);
         }
@@ -224,7 +229,9 @@ void CaseFEMSoftBody::AdvanceImplicit(float dt) {
     const int ndof  = nv * 3;
     const float dt2 = dt * dt;
     const Eigen::Vector3f grav3 = glm2eigen(_gravity);
-    const bool spaceHeld = ImGui::IsKeyDown(ImGuiKey_Space);
+    const ImGuiIO & io = ImGui::GetIO();
+    const bool altHeld = io.KeyAlt || ImGui::IsKeyDown(ImGuiKey_LeftAlt) || ImGui::IsKeyDown(ImGuiKey_RightAlt);
+    const bool spaceHeld = altHeld && ImGui::IsKeyDown(ImGuiKey_Space);
 
     // Save state before implicit step
     std::vector<Eigen::Vector3f> posOld = _mesh.positions;
