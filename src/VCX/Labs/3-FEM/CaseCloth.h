@@ -67,7 +67,7 @@ private:
     int   _gridResY   = 20;
     float _clothWidth  = 1.0f;
     float _clothHeight = 1.0f;
-    float _initHeight  = 1.0f;
+    float _initHeight  = 1.1f;
     bool  _pinCorners  = true;
 
     // Simulation
