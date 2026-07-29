@@ -1,6 +1,6 @@
 # Graphics Physical Simulation Labs
 
-- [中文](README-zh.md)
+- [中文](README.md)
 
 This repository contains four lab assignments for the Graphics-Based Physical Simulation course:
 - Lab1: Rigid body simulation
