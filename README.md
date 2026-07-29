@@ -13,3 +13,8 @@ xmake run lab1
 xmake run lab2
 xmake run lab3
 xmake run lab4
+```
+> Note: This is a personal archive of my implementation.
+I am a contributor to the lab4.
+For the complete source code and full project context, please visit:
+https://github.com/NOIPJohnny/vcx-sim
