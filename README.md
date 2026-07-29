@@ -1,4 +1,4 @@
-# Graphics Physical Simulation Labs / 图形物理仿真实验
+# Graphics Physical Simulation Labs / 图形学物理仿真-Labs
 
 [English](#en) | [中文](#zh)
 
@@ -32,7 +32,7 @@ xmake run lab4
 ---
 
 <a id="zh"></a>
-## 图形物理仿真实验
+## 图形学物理仿真
 
 本仓库包含图形物理仿真课程的四个实验作业：
 - 实验1：刚体仿真
