@@ -19,4 +19,4 @@ xmake run lab3
 xmake run lab4
 ```
 
-> 注意：Lab4需要前往https://github.com/NOIPJohnny/vcx-sim查看，并确保在编译运行前安装了xmake
+> 注意：Lab4需要前往 https://github.com/NOIPJohnny/vcx-sim 查看，并确保在编译运行前安装了xmake
